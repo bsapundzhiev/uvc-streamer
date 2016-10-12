@@ -65,6 +65,7 @@
 
 #define SOURCE_VERSION "1.3"
 #define BOUNDARY "arflebarfle"
+#define NELEMS(x)  (sizeof(x) / sizeof((x)[0]))
 
 typedef enum { SNAPSHOT, STREAM } answer_t;
 
@@ -82,6 +83,19 @@ unsigned char *g_buf = NULL;
 int g_size = 0;
 /*JPEG quality*/
 int gquality = 40;
+
+struct pixel_format {
+    char *name;
+    int format;
+};
+
+struct pixel_format pixel_formats[] = {
+    {"MJPG",  V4L2_PIX_FMT_MJPEG  },
+    {"JPEG",  V4L2_PIX_FMT_JPEG   },
+    {"YUYV",  V4L2_PIX_FMT_YUYV   },
+    {"RGGB",  V4L2_PIX_FMT_SRGGB8 },
+    {"RGB24", V4L2_PIX_FMT_RGB24  },
+};
 
 /* thread for clients that connected to this server */
 void *client_thread( void *arg ) {
@@ -196,6 +210,10 @@ void *cam_thread( void *arg ) {
        //printf("compressing frame fV4L2_PIX_FMT_SRGGB8\n");
        g_size = compress_rggb_to_jpeg(cd.videoIn, g_buf, cd.videoIn->framesizeIn, gquality);
     }
+    else if(cd.videoIn->formatIn == V4L2_PIX_FMT_RGB24) {
+        printf("not implemented\n");
+        exit(-1);
+    }
     else {
       //g_size = cd.videoIn->buf.bytesused;
       //memcpy(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
@@ -299,10 +317,8 @@ int main(int argc, char *argv[])
   char *dev = "/dev/video0";
   int fps=5, daemon=0;
 
-  int format = V4L2_PIX_FMT_MJPEG;
-  //TODO:   
-  //V4L2_PIX_FMT_RGB24
-
+  int i, format = V4L2_PIX_FMT_MJPEG;
+  char *fmtStr = "UNKNOWN";
   cd.width=640;
   cd.height=480;
 
@@ -439,8 +455,14 @@ int main(int argc, char *argv[])
   /* allocate webcam datastructure */
   cd.videoIn = (struct vdIn *) calloc(1, sizeof(struct vdIn));
 
+  for(i = 0; i < NELEMS(pixel_formats); i++){
+    if(pixel_formats[i].format == format) {
+        fmtStr = pixel_formats[i].name;
+    }
+  }
+
   fprintf(stderr, "Using V4L2 device: %s\n", dev);
-  fprintf(stderr, "Format: %i\n", format);
+  fprintf(stderr, "Format: %s\n", fmtStr);
   fprintf(stderr, "JPEG quality: %i\n", gquality);
   fprintf(stderr, "Resolution: %i x %i\n", cdata->width, cdata->height);
   fprintf(stderr, "frames per second %i\n", fps);
