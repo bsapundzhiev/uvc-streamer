@@ -17,9 +17,9 @@ $ make
 ### Usage
 ```
 check supported format
-$ v4l2-ctl -d /dev/video1 --list-formats
+$ v4l2-ctl -d /dev/videoX --list-formats-ext
 start
-$ ./uvc_stream -d /dev/video1 -g
+$ ./uvc_stream -d /dev/videoX -g
 all options
 $ ./uvc_stream -h
 test

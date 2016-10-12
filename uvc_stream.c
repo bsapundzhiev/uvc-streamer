@@ -197,8 +197,9 @@ void *cam_thread( void *arg ) {
        g_size = compress_rggb_to_jpeg(cd.videoIn, g_buf, cd.videoIn->framesizeIn, gquality);
     }
     else {
-      g_size = cd.videoIn->buf.bytesused;
-      memcpy(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
+      //g_size = cd.videoIn->buf.bytesused;
+      //memcpy(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
+      g_size = memcpy_picture(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
     }
     /* signal fresh_frame */
     pthread_cond_broadcast(&db_update);
@@ -299,6 +300,8 @@ int main(int argc, char *argv[])
   int fps=5, daemon=0;
 
   int format = V4L2_PIX_FMT_MJPEG;
+  //TODO:   
+  //V4L2_PIX_FMT_RGB24
 
   cd.width=640;
   cd.height=480;

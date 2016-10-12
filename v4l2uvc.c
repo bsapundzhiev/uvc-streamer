@@ -79,6 +79,7 @@ init_videoIn(struct vdIn *vd, char *device, int width, int height, int fps,
    */
   vd->framesizeIn = (vd->width * vd->height << 1);
   switch (vd->formatIn) {
+  case V4L2_PIX_FMT_JPEG:
   case V4L2_PIX_FMT_MJPEG:
     vd->tmpbuffer = (unsigned char *) calloc(1, (size_t) vd->framesizeIn);
     if (!vd->tmpbuffer)
@@ -87,16 +88,10 @@ init_videoIn(struct vdIn *vd, char *device, int width, int height, int fps,
         (unsigned char *) calloc(1, (size_t) vd->width * (vd->height + 8) * 2);
     break;
   case V4L2_PIX_FMT_YUYV:
+  case V4L2_PIX_FMT_SRGGB8:
     vd->framebuffer =
         (unsigned char *) calloc(1, (size_t) vd->framesizeIn);
-    break;
-  case V4L2_PIX_FMT_SRGGB8:
-	vd->tmpbuffer = (unsigned char *) calloc(1, (size_t) vd->width * vd->height * 3);
-        if(!vd->tmpbuffer)
-            goto error;
-        vd->framebuffer =
-            (unsigned char *) calloc(1, (size_t) vd->framesizeIn);
-     break;
+    break; 
   default:
     printf("Unknown format: should never arrive exit fatal !!\n");
     goto error;
@@ -278,9 +273,12 @@ int uvcGrab(struct vdIn *vd)
 #define HEADERFRAME1 0xaf
   int ret;
 
-  if (!vd->isstreaming)
-    if (video_enable(vd))
+  if (!vd->isstreaming) {
+    if (video_enable(vd)){
       goto err;
+    }
+  }
+
 
   memset(&vd->buf, 0, sizeof(struct v4l2_buffer));
   vd->buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -293,37 +291,29 @@ int uvcGrab(struct vdIn *vd)
   }
 
   switch (vd->formatIn) {
-  case V4L2_PIX_FMT_MJPEG:
-    if (vd->buf.bytesused <= HEADERFRAME1) {    /* Prevent crash
-                                                 * on empty image */
-      printf("Ignoring empty buffer ...\n");
-      return 0;
-    }
+    case V4L2_PIX_FMT_JPEG:
+    case V4L2_PIX_FMT_MJPEG:
+        if (vd->buf.bytesused <= HEADERFRAME1) {
+            /* Prevent crash on empty image */
+            printf("Ignoring empty buffer ...\n");
+            return 0;
+        }
 
-    memcpy(vd->tmpbuffer, vd->mem[vd->buf.index], vd->buf.bytesused);
+        memcpy(vd->tmpbuffer, vd->mem[vd->buf.index], vd->buf.bytesused);
 
-#if 0
-/* This should not be done on weak hardware */
-    if (jpeg_decode(&vd->framebuffer, vd->tmpbuffer, &vd->width, &vd->height) < 0) {
-      printf("jpeg decode errors\n");
-      goto err;
-    }
-    if (debug)
-      printf("bytes in used %d \n", vd->buf.bytesused);
-#endif
     break;
 
     case V4L2_PIX_FMT_SRGGB8:
     case V4L2_PIX_FMT_YUYV:
-        if(vd->buf.bytesused > vd->framesizeIn)
+        if(vd->buf.bytesused > vd->framesizeIn) {
             memcpy(vd->framebuffer, vd->mem[vd->buf.index], (size_t) vd->framesizeIn);
-        else
+        } else {
             memcpy(vd->framebuffer, vd->mem[vd->buf.index], (size_t) vd->buf.bytesused);
-        break;
-	
+        }
+    break;
 
-  default:
-    goto err;
+    default:
+        goto err;
     break;
   }
 
@@ -398,14 +388,14 @@ int v4l2SetControl(struct vdIn *vd, int control, int value)
 {
     struct v4l2_control control_s;
     struct v4l2_queryctrl queryctrl;
-    int min, max, step, val_def;
+    int min, max;// step, val_def;
     int err;
     if (isv4l2Control(vd, control, &queryctrl) < 0)
 	return -1;
     min = queryctrl.minimum;
     max = queryctrl.maximum;
-    step = queryctrl.step;
-    val_def = queryctrl.default_value;
+    //step = queryctrl.step;
+    //val_def = queryctrl.default_value;
     if ((value >= min) && (value <= max)) {
 	control_s.id = control;
 	control_s.value = value;
@@ -593,58 +583,3 @@ int v4L2UpDownPanTilt(struct vdIn *vd, short inc_p, short inc_t) {
   }
   return 0;
 }
-
-#if 0
-
-union pantilt {
-	struct {
-		short pan;
-		short tilt;
-	} s16;
-	int value;
-} __attribute__((packed)) ;
-
-int v4L2UpDownPan(struct vdIn *vd, short inc)
-{   int control = V4L2_CID_PANTILT_RELATIVE;
-    struct v4l2_control control_s;
-    struct v4l2_queryctrl queryctrl;
-    int err;
-
-   union pantilt pan;
-
-       control_s.id = control;
-     if (isv4l2Control(vd, control, &queryctrl) < 0)
-        return -1;
-
-  pan.s16.pan = inc;
-  pan.s16.tilt = 0;
-
-	control_s.value = pan.value ;
-    if ((err = ioctl(vd->fd, VIDIOC_S_CTRL, &control_s)) < 0) {
-	printf("ioctl pan updown control error\n");
-	return -1;
-	}
-	return 0;
-}
-
-int v4L2UpDownTilt(struct vdIn *vd, short inc)
-{   int control = V4L2_CID_PANTILT_RELATIVE;
-    struct v4l2_control control_s;
-    struct v4l2_queryctrl queryctrl;
-    int err;
-     union pantilt pan;
-       control_s.id = control;
-     if (isv4l2Control(vd, control, &queryctrl) < 0)
-	return -1;
-
-    pan.s16.pan= 0;
-    pan.s16.tilt = inc;
-
-	control_s.value = pan.value;
-    if ((err = ioctl(vd->fd, VIDIOC_S_CTRL, &control_s)) < 0) {
-	printf("ioctl tiltupdown control error\n");
-	return -1;
-	}
-	return 0;
-}
-#endif

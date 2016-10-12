@@ -20,7 +20,7 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA    #
 #                                                                              #
 *******************************************************************************/
-
+/*
 #define ERR_NO_SOI 1
 #define ERR_NOT_8BIT 2
 #define ERR_HEIGHT_MISMATCH 3
@@ -36,8 +36,8 @@
 #define ERR_NO_EOI 13
 #define ERR_BAD_TABLES 14
 #define ERR_DEPTH_MISMATCH 15
-
+*/
 #include <stdio.h>
 
 int print_picture(int fd, unsigned char *buf, int size);
-//int print_picture(FILE* file, unsigned char *buf, int size);
+int memcpy_picture(unsigned char *out, unsigned char *buf, int size);
