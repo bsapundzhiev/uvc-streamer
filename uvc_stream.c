@@ -217,9 +217,10 @@ void *cam_thread( void *arg ) {
         exit(-1);
     }
     else {
-      g_size = cd.videoIn->buf.bytesused;
-      memcpy(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
+      g_size = cd.videoIn->framesizeIn;
+      memcpy(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->framesizeIn);
       //g_size = memcpy_picture(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
+
     }
     /* signal fresh_frame */
     pthread_cond_broadcast(&db_update);

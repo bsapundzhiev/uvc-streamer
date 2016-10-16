@@ -91,7 +91,7 @@ init_videoIn(struct vdIn *vd, char *device, int width, int height, int fps,
   case V4L2_PIX_FMT_SRGGB8:
     vd->framebuffer =
         (unsigned char *) calloc(1, (size_t) vd->framesizeIn);
-    break; 
+    break;
   default:
     printf("Unknown format: should never arrive exit fatal !!\n");
     goto error;
@@ -299,6 +299,7 @@ int uvcGrab(struct vdIn *vd)
             return 0;
         }
 
+        vd->framesizeIn = vd->buf.bytesused;
         memcpy(vd->tmpbuffer, vd->mem[vd->buf.index], vd->buf.bytesused);
 
     break;
