@@ -130,6 +130,7 @@ void *client_thread( void *arg ) {
   if( answer == SNAPSHOT) {
     sprintf(buffer, "HTTP/1.0 200 OK\r\n" \
                     "Server: UVC Streamer\r\n" \
+		            "Access-Control-Allow-Origin: *\r\n" \
                     "Content-type: image/jpeg\r\n"
                     "\r\n");
     cd.snapshot = 0;
@@ -140,6 +141,7 @@ void *client_thread( void *arg ) {
                     "Cache-Control: no-cache\r\n" \
                     "Cache-Control: private\r\n" \
                     "Pragma: no-cache\r\n" \
+		            "Access-Control-Allow-Origin: *\r\n" \
                     "\r\n" \
                     "--" BOUNDARY "\n");
   }
@@ -215,9 +217,9 @@ void *cam_thread( void *arg ) {
         exit(-1);
     }
     else {
-      //g_size = cd.videoIn->buf.bytesused;
-      //memcpy(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
-      g_size = memcpy_picture(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
+      g_size = cd.videoIn->buf.bytesused;
+      memcpy(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
+      //g_size = memcpy_picture(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
     }
     /* signal fresh_frame */
     pthread_cond_broadcast(&db_update);
@@ -377,7 +379,8 @@ int main(int argc, char *argv[])
       /* r, resolution */
       case 4:
       case 5:
-        if ( strcmp("960x720", optarg) == 0 ) { cd.width=960; cd.height=720; }
+	if ( strcmp("1280x720", optarg) == 0 ) { cd.width=1280; cd.height=720; }
+        else if ( strcmp("960x720", optarg) == 0 ) { cd.width=960; cd.height=720; }
         else if ( strcmp("640x480", optarg) == 0 ) { cd.width=640; cd.height=480; }
         else if ( strcmp("320x240", optarg) == 0 ) { cd.width=320; cd.height=240; }
         else if ( strcmp("160x120", optarg) == 0 ) { cd.width=160; cd.height=120; }
