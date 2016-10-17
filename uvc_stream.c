@@ -187,6 +187,8 @@ void *client_thread( void *arg ) {
     if( ok < 0 ) break;
   }
 
+  close(fd);
+
   return NULL;
 }
 
