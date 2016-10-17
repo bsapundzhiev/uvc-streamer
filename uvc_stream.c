@@ -99,15 +99,14 @@ struct pixel_format pixel_formats[] = {
 
 /* thread for clients that connected to this server */
 void *client_thread( void *arg ) {
+
   int fd = *((int *)arg);
   fd_set fds;
-  unsigned char *frame = (unsigned char *)calloc(1, (size_t)cd.videoIn->framesizeIn);
+  unsigned char *frame = NULL;
   int ok = 1, frame_size=0;
   char buffer[1024] = {0};
   struct timeval to;
   answer_t answer = STREAM;
-
-  if (arg!=NULL) free(arg); else exit(1);
 
   /* set timeout to 5 seconds */
   to.tv_sec  = 5;
@@ -116,7 +115,7 @@ void *client_thread( void *arg ) {
   FD_SET(fd, &fds);
   if( select(fd+1, &fds, NULL, NULL, &to) <= 0) {
     close(fd);
-    free(frame);
+    //free(frame);
     return NULL;
   }
 
@@ -147,6 +146,7 @@ void *client_thread( void *arg ) {
   }
   ok = ( write(fd, buffer, strlen(buffer)) >= 0)?1:0;
 
+
   while ( ok >= 0 && !stop ) {
 
     /* having a problem with windows (do we not always) browsers not updating the
@@ -157,11 +157,15 @@ void *client_thread( void *arg ) {
       SLEEP(1,0);
       cd.moved = 0;
     }
+
+    pthread_mutex_lock(&db);
+
     /* wait for fresh frames */
     pthread_cond_wait(&db_update, &db);
 
     /* read buffer */
     frame_size = g_size;
+    frame = (unsigned char *)calloc(1, (size_t)g_size);
     memcpy(frame, g_buf, frame_size);
 
     pthread_mutex_unlock( &db );
@@ -173,15 +177,15 @@ void *client_thread( void *arg ) {
     }
 
     ok = print_picture(fd, frame, frame_size);
+    free(frame);
+
     if( ok < 0 || answer == SNAPSHOT ) break;
+
 
     sprintf(buffer, "\n--" BOUNDARY "\n");
     ok = ( write(fd, buffer, strlen(buffer)) >= 0)?1:0;
     if( ok < 0 ) break;
   }
-
-  close(fd);
-  free(frame);
 
   return NULL;
 }
@@ -220,8 +224,8 @@ void *cam_thread( void *arg ) {
       g_size = cd.videoIn->framesizeIn;
       memcpy(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->framesizeIn);
       //g_size = memcpy_picture(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
-
     }
+
     /* signal fresh_frame */
     pthread_cond_broadcast(&db_update);
     pthread_mutex_unlock( &db );
@@ -297,16 +301,6 @@ void daemon_mode(void) {
   }
 
   umask(0);
-/*
-  chdir("/");
-  close(0);
-  close(1);
-  close(2);
-
-  open("/dev/null", O_RDWR);
-  dup(0);
-  dup(0);
-*/
 }
 
 /* #########################################################################
@@ -314,17 +308,18 @@ Main
 ######################################################################### */
 int main(int argc, char *argv[])
 {
-  struct sockaddr_in addr;
+  struct sockaddr_in addr, client_addr;
   int on=1, disable_control_port = 1;
   pthread_t client, cam, cntrl;
   char *dev = "/dev/video0";
   int fps=5, daemon=0;
+  int c = sizeof(struct sockaddr_in);
 
   int i, format = V4L2_PIX_FMT_MJPEG;
   char *fmtStr = "UNKNOWN";
   cd.width=640;
   cd.height=480;
-
+  int client_sock;
   cdata = &cd;
   cd.control_port = htons(8081);
   cd.stream_port = htons(8080);
@@ -514,25 +509,34 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
-  /* start to read the camera, push picture buffers into global buffer */
-  cd.videoIn->tmpbuffer = (unsigned char *) calloc(1, (size_t)cd.videoIn->framesizeIn);
-                  g_buf = (unsigned char *) calloc(1, (size_t)cd.videoIn->framesizeIn);
-  pthread_create(&cam, 0, cam_thread, NULL);
-  pthread_detach(cam);
+    /* start to read the camera, push picture buffers into global buffer */
+    g_buf = (unsigned char *) calloc(1, (size_t)cd.videoIn->framesizeIn);
 
-  /* start motor control server */
-  if (disable_control_port == 0){
-    pthread_create(&cntrl, NULL, &uvcstream_control, cdata);
-    pthread_detach(cntrl);
-  }
+    pthread_create(&cam, 0, cam_thread, NULL);
+    pthread_detach(cam);
 
-  /* create a child for every client that connects */
-  while ( 1 ) {
-    int *pfd = (int *)calloc(1, sizeof(int));
-    *pfd = accept(sd, 0, 0);
-    pthread_create(&client, NULL, &client_thread, pfd);
-    pthread_detach(client);
-  }
+    /* start motor control server */
+    if (disable_control_port == 0) {
+        pthread_create(&cntrl, NULL, &uvcstream_control, cdata);
+        pthread_detach(cntrl);
+    }
 
-  return 0;
+    while( 1 ) {
+        client_sock = accept(sd, (struct sockaddr *)&client_addr, (socklen_t*)&c);
+        //printf("client %d\n", client_sock);
+        if (client_sock < 0) {
+            perror("accept failed");
+            continue;
+        }
+
+        if( pthread_create(&client, NULL,  &client_thread, (void*)&client_sock) < 0) {
+            perror("could not create client thread");
+            return 1;
+        }
+
+        //pthread_join( client , NULL);
+        pthread_detach(client);
+    }
+
+    return 0;
 }
