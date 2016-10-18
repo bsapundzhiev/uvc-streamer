@@ -74,7 +74,7 @@ int memcpy_picture(unsigned char *out, unsigned char *buf, int size)
 int print_picture(int fd, unsigned char *buf, int size)
 {
     int jpg_hdr = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
-    if(jpg_hdr != 0xFFD8FFE0) {
+    if(jpg_hdr != 0xFFD8FFE0 && jpg_hdr != 0xFFD8FFC0) {
         printf("%s: invalid JPEG header 0x%X\n", __func__, jpg_hdr);
     }
     if( write(fd, buf, size) <= 0) return -1;

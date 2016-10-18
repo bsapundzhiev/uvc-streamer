@@ -115,7 +115,6 @@ void *client_thread( void *arg ) {
   FD_SET(fd, &fds);
   if( select(fd+1, &fds, NULL, NULL, &to) <= 0) {
     close(fd);
-    //free(frame);
     return NULL;
   }
 
@@ -141,12 +140,13 @@ void *client_thread( void *arg ) {
                     "Cache-Control: private\r\n" \
                     "Pragma: no-cache\r\n" \
 		            "Access-Control-Allow-Origin: *\r\n" \
-                    "\r\n" \
-                    "--" BOUNDARY "\n");
+                    "\r\n");
   }
   ok = ( write(fd, buffer, strlen(buffer)) >= 0)?1:0;
 
 
+
+  /* mjpeg server push */
   while ( ok >= 0 && !stop ) {
 
     /* having a problem with windows (do we not always) browsers not updating the
@@ -171,7 +171,9 @@ void *client_thread( void *arg ) {
     pthread_mutex_unlock( &db );
 
     if ( answer == STREAM ) {
-      sprintf(buffer, "Content-type: image/jpeg\n\n");
+      sprintf(buffer,
+        "--" BOUNDARY "\n" \
+        "Content-type: image/jpeg\n\n");
       ok = ( write(fd, buffer, strlen(buffer)) >= 0)?1:0;
       if( ok < 0 ) break;
     }
@@ -180,11 +182,6 @@ void *client_thread( void *arg ) {
     free(frame);
 
     if( ok < 0 || answer == SNAPSHOT ) break;
-
-
-    sprintf(buffer, "\n--" BOUNDARY "\n");
-    ok = ( write(fd, buffer, strlen(buffer)) >= 0)?1:0;
-    if( ok < 0 ) break;
   }
 
   close(fd);
