@@ -15,7 +15,7 @@ APP_BINARY=uvc_stream
 CFLAGS += -O2 -DLINUX -Wall -pedantic
 LFLAGS += -lpthread -ljpeg
 
-OBJECTS=uvc_stream.o utils.o v4l2uvc.o control.o jpeg_utils.o
+OBJECTS=uvc_stream.o utils.o v4l2uvc.o jpeg_utils.o
 
 all: uga_buga
 

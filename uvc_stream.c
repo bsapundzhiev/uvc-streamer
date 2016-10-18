@@ -58,7 +58,6 @@
 #include <getopt.h>
 #include <pthread.h>
 
-#include "control.h"
 #include "v4l2uvc.h"
 #include "utils.h"
 #include "jpeg_utils.h"
@@ -69,10 +68,18 @@
 
 typedef enum { SNAPSHOT, STREAM } answer_t;
 
+struct control_data {
+   struct vdIn *videoIn;
+   int width, height;
+   int moved, video_dev, snapshot;
+   int stream_port;
+};
+
 /* globals */
 int stop=0, sd;
 int force_delay=0;
-struct control_data cd, *cdata;
+
+struct control_data cd;
 
 /* signal fresh frames */
 pthread_mutex_t db        = PTHREAD_MUTEX_INITIALIZER;
@@ -154,7 +161,8 @@ void *client_thread( void *arg ) {
        to allow movement to end before streem goes on - kind of works, but not well enough */
 
     if (cd.moved > 0){
-      SLEEP(1,0);
+      //SLEEP(1,0);
+      usleep(1000);
       cd.moved = 0;
     }
 
@@ -246,13 +254,11 @@ void help(char *progname)
     " [-r, --resolution ]    960x720, 640x480, 320x240, 160x120\n" \
     " [-f, --fps ]           frames per second\n" \
     " [-p, --port ]          TCP-port for the server\n" \
-    " [-c, --control_port ]  TCP-port for the motor control server\n" \
     " [-y ]                  use YUYV format\n" \
     " [-g ]                  use RGGB format\n" \
     " [-q ]                  compression quality\n" \
     " [-v | --version ]      display version information\n" \
-    " [-b | --background]    fork to the background, daemon mode\n" \
-    " [--disable_control]    disable the motor control server\n", progname);
+    " [-b | --background]    fork to the background, daemon mode\n", progname);
 }
 
 void signal_handler(int sigm) {
@@ -308,8 +314,8 @@ Main
 int main(int argc, char *argv[])
 {
   struct sockaddr_in addr, client_addr;
-  int on=1, disable_control_port = 1;
-  pthread_t client, cam, cntrl;
+  int on=1;
+  pthread_t client, cam;
   char *dev = "/dev/video0";
   int fps=5, daemon=0;
   int c = sizeof(struct sockaddr_in);
@@ -319,9 +325,9 @@ int main(int argc, char *argv[])
   cd.width=640;
   cd.height=480;
   int client_sock;
-  cdata = &cd;
-  cd.control_port = htons(8081);
+
   cd.stream_port = htons(8080);
+
   while(1) {
     int option_index = 0, c=0;
     static struct option long_options[] = \
@@ -343,9 +349,6 @@ int main(int argc, char *argv[])
       {"version", no_argument, 0, 0},
       {"b", no_argument, 0, 0},
       {"background", no_argument, 0, 0},
-      {"c", required_argument, 0, 0},
-      {"control_port", required_argument, 0, 0},
-      {"disable_control", no_argument, 0, 0},
       {0, 0, 0, 0}
     };
 
@@ -404,7 +407,7 @@ int main(int argc, char *argv[])
       case 11:
         format = V4L2_PIX_FMT_SRGGB8;
 	   break;
-        /* q */
+      /* q */
       case 12:
         gquality = atoi(optarg);
         break;
@@ -423,15 +426,6 @@ int main(int argc, char *argv[])
         daemon=1;
         break;
 
-      /* c, control_port */
-      case 17:
-      case 18:
-        cd.control_port=htons(atoi(optarg));
-        break;
-      /* disable_control */
-      case 19:
-        disable_control_port = 1;
-        break;
       default:
         help(argv[0]);
         return 0;
@@ -462,14 +456,10 @@ int main(int argc, char *argv[])
   fprintf(stderr, "Using V4L2 device: %s\n", dev);
   fprintf(stderr, "Format: %s\n", fmtStr);
   fprintf(stderr, "JPEG quality: %i\n", gquality);
-  fprintf(stderr, "Resolution: %i x %i\n", cdata->width, cdata->height);
+  fprintf(stderr, "Resolution: %i x %i\n", cd.width, cd.height);
   fprintf(stderr, "frames per second %i\n", fps);
   fprintf(stderr, "TCP port: %i\n", ntohs(cd.stream_port));
-  if (disable_control_port == 1){
-    fprintf(stderr, "motor control server..: disabled\n");
-  } else {
-    fprintf(stderr, "motor control TCP port: %i\n", ntohs(cd.control_port));
-  }
+
 
   /* open video device and prepare data structure */
   cd.video_dev = init_videoIn(cd.videoIn, dev, cd.width, cd.height, fps, format, 1);
@@ -513,12 +503,6 @@ int main(int argc, char *argv[])
 
     pthread_create(&cam, 0, cam_thread, NULL);
     pthread_detach(cam);
-
-    /* start motor control server */
-    if (disable_control_port == 0) {
-        pthread_create(&cntrl, NULL, &uvcstream_control, cdata);
-        pthread_detach(cntrl);
-    }
 
     while( 1 ) {
         client_sock = accept(sd, (struct sockaddr *)&client_addr, (socklen_t*)&c);
