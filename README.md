@@ -14,6 +14,25 @@ $ sudo apt-get install libjpeg8-dev
 $ make
 ````
 
+### Cross compile rasspbery pi
+````
+$ wget http://www.ijg.org/files/jpegsrc.v8.tar.gz
+
+$ tar -xzvf jpegsrc.v8.tar.gz
+
+$ cd jpeg-8
+
+$ export PATH=$PATH:$HOME/cross/tools-master/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian/bin
+
+$ ./configure --host=arm-linux CC=arm-linux-gnueabihf-gcc
+
+$ make
+
+$ cd ..
+
+$ make CC=arm-linux-gnueabihf-gcc
+````
+
 ### Usage
 ```
 check supported format

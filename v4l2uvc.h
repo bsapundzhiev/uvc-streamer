@@ -1,9 +1,9 @@
 /*******************************************************************************
-#	 	luvcview: Sdl video Usb Video Class grabber.                               #
+#	 	luvcview: Sdl video Usb Video Class grabber.                           #
 #This package work with the Logitech UVC based webcams with the mjpeg feature. #
 #All the decoding is in user space with the embedded jpeg decoder              #
 #.                                                                             #
-# 		Copyright (C) 2005 2006 Laurent Pinchart &&  Michel Xhaard               #
+# 		Copyright (C) 2005 2006 Laurent Pinchart &&  Michel Xhaard             #
 #                                                                              #
 # This program is free software; you can redistribute it and/or modify         #
 # it under the terms of the GNU General Public License as published by         #
@@ -29,7 +29,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/select.h>
-#include <linux/videodev.h>
+#include <linux/videodev2.h>
 
 #include "uvcvideo.h"
 
@@ -79,7 +79,7 @@ init_videoIn(struct vdIn *vd, char *device, int width, int height, int fps, int 
 int enum_controls(int vd);
 int save_controls(int vd);
 int load_controls(int vd);
-	     
+
 int uvcGrab(struct vdIn *vd);
 int close_v4l2(struct vdIn *vd);
 

@@ -1,2 +1,6 @@
 *.o
 /uvc_stream
+/jpeg-8/
+*.zip
+*.tar.gz
+*.rpi

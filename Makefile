@@ -7,14 +7,17 @@
 #
 ###############################################################
 
+
+ifeq ($(CC),cc)
 CC=gcc
-LD=ld
-APP_BINARY=uvc_stream
-
-
 CFLAGS += -O2 -DLINUX -Wall -pedantic
 LFLAGS += -lpthread -ljpeg
+else
+CFLAGS += -O2 -DLINUX -Wall -pedantic -I ./jpeg-8
+LFLAGS += -lpthread -L ./jpeg-8/.libs -ljpeg
+endif
 
+APP_BINARY=uvc_stream
 OBJECTS=uvc_stream.o utils.o v4l2uvc.o jpeg_utils.o
 
 all: uga_buga
