@@ -75,6 +75,10 @@ struct control_data {
    int stream_port;
 };
 
+struct clientArgs {
+  int socket;
+};
+
 /* globals */
 int stop=0, sd;
 int force_delay=0;
@@ -107,7 +111,8 @@ struct pixel_format pixel_formats[] = {
 /* thread for clients that connected to this server */
 void *client_thread( void *arg ) {
 
-  int fd = *((int *)arg);
+  struct clientArgs * ca = (struct clientArgs *)arg;
+  int fd = ca->socket;
   fd_set fds;
   unsigned char *frame = NULL;
   int ok = 1, frame_size=0;
@@ -115,6 +120,8 @@ void *client_thread( void *arg ) {
   struct timeval to;
   answer_t answer = STREAM;
 
+  pthread_detach(pthread_self());
+  free(arg);
   /* set timeout to 5 seconds */
   to.tv_sec  = 5;
   to.tv_usec = 0;
@@ -122,7 +129,7 @@ void *client_thread( void *arg ) {
   FD_SET(fd, &fds);
   if( select(fd+1, &fds, NULL, NULL, &to) <= 0) {
     close(fd);
-    return NULL;
+    pthread_exit(NULL);
   }
 
   /* find out if we should deliver something other than a stream */
@@ -135,7 +142,7 @@ void *client_thread( void *arg ) {
   if( answer == SNAPSHOT) {
     sprintf(buffer, "HTTP/1.0 200 OK\r\n" \
                     "Server: UVC Streamer\r\n" \
-		            "Access-Control-Allow-Origin: *\r\n" \
+		                "Access-Control-Allow-Origin: *\r\n" \
                     "Content-type: image/jpeg\r\n"
                     "\r\n");
     cd.snapshot = 0;
@@ -146,11 +153,10 @@ void *client_thread( void *arg ) {
                     "Cache-Control: no-cache\r\n" \
                     "Cache-Control: private\r\n" \
                     "Pragma: no-cache\r\n" \
-		            "Access-Control-Allow-Origin: *\r\n" \
+		                "Access-Control-Allow-Origin: *\r\n" \
                     "\r\n");
   }
   ok = ( write(fd, buffer, strlen(buffer)) >= 0)?1:0;
-
 
 
   /* mjpeg server push */
@@ -161,7 +167,6 @@ void *client_thread( void *arg ) {
        to allow movement to end before streem goes on - kind of works, but not well enough */
 
     if (cd.moved > 0){
-      //SLEEP(1,0);
       usleep(1000);
       cd.moved = 0;
     }
@@ -193,8 +198,7 @@ void *client_thread( void *arg ) {
   }
 
   close(fd);
-
-  return NULL;
+  pthread_exit(NULL);
 }
 
 /* the single writer thread */
@@ -275,7 +279,6 @@ void signal_handler(int sigm) {
   pthread_cond_destroy(&db_update);
   pthread_mutex_destroy(&db);
   exit(0);
-  return;
 }
 
 void daemon_mode(void) {
@@ -308,9 +311,7 @@ void daemon_mode(void) {
   umask(0);
 }
 
-/* #########################################################################
-Main
-######################################################################### */
+/* Main */
 int main(int argc, char *argv[])
 {
   struct sockaddr_in addr, client_addr;
@@ -319,6 +320,7 @@ int main(int argc, char *argv[])
   char *dev = "/dev/video0";
   int fps=5, daemon=0;
   int c = sizeof(struct sockaddr_in);
+  struct clientArgs *ca;
 
   int i, format = V4L2_PIX_FMT_MJPEG;
   char *fmtStr = "UNKNOWN";
@@ -377,14 +379,14 @@ int main(int argc, char *argv[])
       /* r, resolution */
       case 4:
       case 5:
-	if ( strcmp("1280x720", optarg) == 0 ) { cd.width=1280; cd.height=720; }
-        else if ( strcmp("960x720", optarg) == 0 ) { cd.width=960; cd.height=720; }
-        else if ( strcmp("640x480", optarg) == 0 ) { cd.width=640; cd.height=480; }
-        else if ( strcmp("320x240", optarg) == 0 ) { cd.width=320; cd.height=240; }
-        else if ( strcmp("160x120", optarg) == 0 ) { cd.width=160; cd.height=120; }
-        else {
-              fprintf(stderr, "ignoring unsupported resolution\n");
-        }
+	       if ( strcmp("1280x720", optarg) == 0 ) { cd.width=1280; cd.height=720; }
+          else if ( strcmp("960x720", optarg) == 0 ) { cd.width=960; cd.height=720; }
+          else if ( strcmp("640x480", optarg) == 0 ) { cd.width=640; cd.height=480; }
+          else if ( strcmp("320x240", optarg) == 0 ) { cd.width=320; cd.height=240; }
+          else if ( strcmp("160x120", optarg) == 0 ) { cd.width=160; cd.height=120; }
+          else {
+            fprintf(stderr, "ignoring unsupported resolution\n");
+          }
         break;
 
       /* f, fps */
@@ -501,24 +503,24 @@ int main(int argc, char *argv[])
     /* start to read the camera, push picture buffers into global buffer */
     g_buf = (unsigned char *) calloc(1, (size_t)cd.videoIn->framesizeIn);
 
-    pthread_create(&cam, 0, cam_thread, NULL);
+    pthread_create(&cam, NULL, cam_thread, NULL);
     pthread_detach(cam);
 
     while( 1 ) {
         client_sock = accept(sd, (struct sockaddr *)&client_addr, (socklen_t*)&c);
-        //printf("client %d\n", client_sock);
+
         if (client_sock < 0) {
             perror("accept failed");
             continue;
         }
+        //printf("client %d\n", client_sock);
+        ca = malloc(sizeof(struct clientArgs));
+        ca->socket= client_sock;
 
-        if( pthread_create(&client, NULL,  &client_thread, (void*)&client_sock) < 0) {
+        if( pthread_create(&client, NULL,  client_thread, ca) < 0) {
             perror("could not create client thread");
             return 1;
         }
-
-        //pthread_join( client , NULL);
-        pthread_detach(client);
     }
 
     return 0;
