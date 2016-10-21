@@ -62,42 +62,45 @@
 #include "utils.h"
 #include "jpeg_utils.h"
 
-#define SOURCE_VERSION "1.3"
+#define SOURCE_VERSION "1.0"
 #define BOUNDARY "arflebarfle"
-#define NELEMS(x)  (sizeof(x) / sizeof((x)[0]))
+#define VIDEODEV "/dev/video0"
+#define NELEMS(x) (sizeof(x) / sizeof((x)[0]))
 
 typedef enum { SNAPSHOT, STREAM } answer_t;
 
 struct control_data {
-   struct vdIn *videoIn;
-   int width, height;
-   int moved, video_dev, snapshot;
-   int stream_port;
+  struct vdIn *videoIn;
+  int width, height;
+  int video_dev;
+  int stream_port;
+  int quality;
+};
+
+struct thread_buff {
+  pthread_mutex_t lock;
+  pthread_cond_t  cond;
+  int size;
+  unsigned char *buff;
+} tbuff = {
+  PTHREAD_MUTEX_INITIALIZER,
+  PTHREAD_COND_INITIALIZER,
+  0,
+  NULL
 };
 
 struct clientArgs {
   int socket;
+  struct thread_buff *ptbuff;
 };
 
 /* globals */
 int stop=0, sd;
-int force_delay=0;
-
 struct control_data cd;
 
-/* signal fresh frames */
-pthread_mutex_t db        = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t  db_update = PTHREAD_COND_INITIALIZER;
-
-/* global JPG frame, this is more or less the "database" */
-unsigned char *g_buf = NULL;
-int g_size = 0;
-/*JPEG quality*/
-int gquality = 40;
-
 struct pixel_format {
-    char *name;
-    int format;
+  char *name;
+  int format;
 };
 
 struct pixel_format pixel_formats[] = {
@@ -108,26 +111,31 @@ struct pixel_format pixel_formats[] = {
     {"RGB24", V4L2_PIX_FMT_RGB24  },
 };
 
+static int data_available(int socket, int timeout)
+{
+  struct timeval to;
+  fd_set fds;
+  to.tv_sec  = timeout;
+  to.tv_usec = 0;
+  FD_ZERO(&fds);
+  FD_SET(socket, &fds);
+  return select(socket+1, &fds, NULL, NULL, &to);
+}
+
 /* thread for clients that connected to this server */
 void *client_thread( void *arg ) {
 
-  struct clientArgs * ca = (struct clientArgs *)arg;
+  struct clientArgs *ca = (struct clientArgs *)arg;
+  struct thread_buff *tbuff = ca->ptbuff;
   int fd = ca->socket;
-  fd_set fds;
-  unsigned char *frame = NULL;
-  int ok = 1, frame_size=0;
+  int ok = 1;
   char buffer[1024] = {0};
-  struct timeval to;
   answer_t answer = STREAM;
 
-  pthread_detach(pthread_self());
   free(arg);
-  /* set timeout to 5 seconds */
-  to.tv_sec  = 5;
-  to.tv_usec = 0;
-  FD_ZERO(&fds);
-  FD_SET(fd, &fds);
-  if( select(fd+1, &fds, NULL, NULL, &to) <= 0) {
+  pthread_detach(pthread_self());
+
+  if(data_available(fd, 5) <= 0){
     close(fd);
     pthread_exit(NULL);
   }
@@ -145,7 +153,6 @@ void *client_thread( void *arg ) {
 		                "Access-Control-Allow-Origin: *\r\n" \
                     "Content-type: image/jpeg\r\n"
                     "\r\n");
-    cd.snapshot = 0;
   } else {
     sprintf(buffer, "HTTP/1.0 200 OK\r\n" \
                     "Server: UVC Streamer\r\n" \
@@ -158,7 +165,6 @@ void *client_thread( void *arg ) {
   }
   ok = ( write(fd, buffer, strlen(buffer)) >= 0)?1:0;
 
-
   /* mjpeg server push */
   while ( ok >= 0 && !stop ) {
 
@@ -166,35 +172,32 @@ void *client_thread( void *arg ) {
        stream display, unless the browser cache is disabled - try and implement a delay
        to allow movement to end before streem goes on - kind of works, but not well enough */
 
-    if (cd.moved > 0){
+    /*if (cd.moved > 0){
       usleep(1000);
       cd.moved = 0;
-    }
+    }*/
 
-    pthread_mutex_lock(&db);
-
-    /* wait for fresh frames */
-    pthread_cond_wait(&db_update, &db);
-
-    /* read buffer */
-    frame_size = g_size;
-    frame = (unsigned char *)calloc(1, (size_t)g_size);
-    memcpy(frame, g_buf, frame_size);
-
-    pthread_mutex_unlock( &db );
+    pthread_mutex_lock(&(ca->ptbuff)->lock);
+    pthread_cond_wait(&(tbuff)->cond, &(tbuff)->lock);
 
     if ( answer == STREAM ) {
       sprintf(buffer,
         "--" BOUNDARY "\n" \
         "Content-type: image/jpeg\n\n");
-      ok = ( write(fd, buffer, strlen(buffer)) >= 0)?1:0;
-      if( ok < 0 ) break;
+
+      if(write(fd, buffer, strlen(buffer)) < 0) {
+        pthread_mutex_unlock( &(ca->ptbuff)->lock );
+        break;
+      }
     }
 
-    ok = print_picture(fd, frame, frame_size);
-    free(frame);
+    ok = print_picture(fd, tbuff->buff, tbuff->size);
 
-    if( ok < 0 || answer == SNAPSHOT ) break;
+    pthread_mutex_unlock( &(ca->ptbuff)->lock );
+
+    if( ok < 0 || answer == SNAPSHOT ) {
+      break;
+    }
   }
 
   close(fd);
@@ -203,6 +206,9 @@ void *client_thread( void *arg ) {
 
 /* the single writer thread */
 void *cam_thread( void *arg ) {
+
+  struct thread_buff *tbuff = (struct thread_buff*)arg;
+
   while( !stop ) {
     /* grab a frame */
     if( uvcGrab(cd.videoIn) < 0 ) {
@@ -211,7 +217,7 @@ void *cam_thread( void *arg ) {
     }
 
     /* copy frame to global buffer */
-    pthread_mutex_lock( &db );
+    pthread_mutex_lock( &tbuff->lock );
 
    /*
     * If capturing in YUV mode convert to JPEG now.
@@ -220,26 +226,26 @@ void *cam_thread( void *arg ) {
     * Linux-UVC compatible devices.
     */
     if(cd.videoIn->formatIn == V4L2_PIX_FMT_YUYV) {
-       //printf("compressing frame V4L2_PIX_FMT_YUYV\n");
-       g_size = compress_yuyv_to_jpeg(cd.videoIn, g_buf, cd.videoIn->framesizeIn, gquality);
+
+       tbuff->size = compress_yuyv_to_jpeg(cd.videoIn, tbuff->buff, cd.videoIn->framesizeIn, cd.quality);
     }
     else if(cd.videoIn->formatIn == V4L2_PIX_FMT_SRGGB8) {
-       //printf("compressing frame fV4L2_PIX_FMT_SRGGB8\n");
-       g_size = compress_rggb_to_jpeg(cd.videoIn, g_buf, cd.videoIn->framesizeIn, gquality);
+
+       tbuff->size = compress_rggb_to_jpeg(cd.videoIn, tbuff->buff, cd.videoIn->framesizeIn, cd.quality);
     }
     else if(cd.videoIn->formatIn == V4L2_PIX_FMT_RGB24) {
-        printf("not implemented\n");
-        exit(-1);
+
+       tbuff->size = compress_rgb_to_jpeg(cd.videoIn, tbuff->buff, cd.videoIn->framesizeIn, cd.quality);
     }
     else {
-      g_size = cd.videoIn->framesizeIn;
-      memcpy(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->framesizeIn);
+      tbuff->size = cd.videoIn->framesizeIn;
+      memcpy(tbuff->buff, cd.videoIn->tmpbuffer, cd.videoIn->framesizeIn);
       //g_size = memcpy_picture(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
     }
 
     /* signal fresh_frame */
-    pthread_cond_broadcast(&db_update);
-    pthread_mutex_unlock( &db );
+    pthread_cond_broadcast(&tbuff->cond);
+    pthread_mutex_unlock(&tbuff->lock);
 
     /* only use usleep if the fps is below 5, otherwise the overhead is too long */
     if ( cd.videoIn->fps < 5 ) {
@@ -247,7 +253,7 @@ void *cam_thread( void *arg ) {
     }
   }
 
-  return NULL;
+  pthread_exit(NULL);
 }
 
 void help(char *progname)
@@ -274,10 +280,13 @@ void signal_handler(int sigm) {
   usleep(1000*1000);
   close_v4l2(cd.videoIn);
   free(cd.videoIn);
-  if (close (sd) < 0)
-	  perror ("close sd");;
-  pthread_cond_destroy(&db_update);
-  pthread_mutex_destroy(&db);
+  if (close (sd) < 0) {
+	  perror ("close sd");
+  }
+
+  pthread_cond_destroy(&tbuff.cond);
+  pthread_mutex_destroy(&tbuff.lock);
+
   exit(0);
 }
 
@@ -311,24 +320,74 @@ void daemon_mode(void) {
   umask(0);
 }
 
+int http_listener()
+{
+  pthread_t client;
+  struct sockaddr_in addr, client_addr;
+  int on=1;
+  int client_sock;
+  int c = sizeof(struct sockaddr_in);
+  struct clientArgs *ca;
+  /* open socket for server */
+  sd = socket(PF_INET, SOCK_STREAM, 0);
+  if ( sd < 0 ) {
+    fprintf(stderr, "socket failed\n");
+    exit(1);
+  }
+
+  /* ignore "socket already in use" errors */
+  if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
+    perror("setsockopt(SO_REUSEADDR) failed");
+    exit(1);
+  }
+
+  /* configure server address to listen to all local IPs */
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_port = cd.stream_port;
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  if ( bind(sd, (struct sockaddr*)&addr, sizeof(addr)) != 0 ) {
+    perror("Bind");
+    exit(1);
+  }
+
+  /* start listening on socket */
+  if (listen(sd, 10) != 0 ) {
+    fprintf(stderr, "listen failed\n");
+    exit(1);
+  }
+
+  while( 1 ) {
+
+    client_sock = accept(sd, (struct sockaddr *)&client_addr, (socklen_t*)&c);
+    if (client_sock < 0) {
+      perror("accept failed");
+      continue;
+    }
+    //printf("client %d\n", client_sock);
+    ca = malloc(sizeof(struct clientArgs));
+    ca->ptbuff = &tbuff;
+    ca->socket = client_sock;
+
+    if( pthread_create(&client, NULL,  client_thread, ca) < 0) {
+      perror("could not create client thread");
+      return 1;
+    }
+  }
+}
+
 /* Main */
 int main(int argc, char *argv[])
 {
-  struct sockaddr_in addr, client_addr;
-  int on=1;
-  pthread_t client, cam;
-  char *dev = "/dev/video0";
+  pthread_t cam;
+  char *dev = VIDEODEV;
   int fps=5, daemon=0;
-  int c = sizeof(struct sockaddr_in);
-  struct clientArgs *ca;
-
   int i, format = V4L2_PIX_FMT_MJPEG;
   char *fmtStr = "UNKNOWN";
   cd.width=640;
   cd.height=480;
-  int client_sock;
-
   cd.stream_port = htons(8080);
+  cd.quality = 40;
 
   while(1) {
     int option_index = 0, c=0;
@@ -379,7 +438,7 @@ int main(int argc, char *argv[])
       /* r, resolution */
       case 4:
       case 5:
-	       if ( strcmp("1280x720", optarg) == 0 ) { cd.width=1280; cd.height=720; }
+         if ( strcmp("1280x720", optarg) == 0 ) { cd.width=1280; cd.height=720; }
           else if ( strcmp("960x720", optarg) == 0 ) { cd.width=960; cd.height=720; }
           else if ( strcmp("640x480", optarg) == 0 ) { cd.width=640; cd.height=480; }
           else if ( strcmp("320x240", optarg) == 0 ) { cd.width=320; cd.height=240; }
@@ -403,15 +462,15 @@ int main(int argc, char *argv[])
 
       /* y */
       case 10:
-	   format = V4L2_PIX_FMT_YUYV;
-	   break;
+     format = V4L2_PIX_FMT_YUYV;
+     break;
       /* g */
       case 11:
         format = V4L2_PIX_FMT_SRGGB8;
-	   break;
+     break;
       /* q */
       case 12:
-        gquality = atoi(optarg);
+        cd.quality = atoi(optarg);
         break;
       /* v, version */
       case 13:
@@ -457,12 +516,10 @@ int main(int argc, char *argv[])
 
   fprintf(stderr, "Using V4L2 device: %s\n", dev);
   fprintf(stderr, "Format: %s\n", fmtStr);
-  fprintf(stderr, "JPEG quality: %i\n", gquality);
+  fprintf(stderr, "JPEG quality: %i\n", cd.quality);
   fprintf(stderr, "Resolution: %i x %i\n", cd.width, cd.height);
   fprintf(stderr, "frames per second %i\n", fps);
   fprintf(stderr, "TCP port: %i\n", ntohs(cd.stream_port));
-
-
   /* open video device and prepare data structure */
   cd.video_dev = init_videoIn(cd.videoIn, dev, cd.width, cd.height, fps, format, 1);
   if (cd.video_dev < 0) {
@@ -470,58 +527,11 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
-  /* open socket for server */
-  sd = socket(PF_INET, SOCK_STREAM, 0);
-  if ( sd < 0 ) {
-    fprintf(stderr, "socket failed\n");
-    exit(1);
-  }
+  /* start to read the camera, push picture buffers into global buffer */
+  tbuff.buff = (unsigned char *) calloc(1, (size_t)cd.videoIn->framesizeIn);
+  pthread_create(&cam, NULL, cam_thread, &tbuff);
+  pthread_detach(cam);
 
-  /* ignore "socket already in use" errors */
-  if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
-    perror("setsockopt(SO_REUSEADDR) failed");
-    exit(1);
-  }
-
-  /* configure server address to listen to all local IPs */
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family = AF_INET;
-  addr.sin_port = cd.stream_port;
-  addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  if ( bind(sd, (struct sockaddr*)&addr, sizeof(addr)) != 0 ) {
-    fprintf(stderr, "bind failed\n");
-    perror("Bind");
-    exit(1);
-  }
-
-  /* start listening on socket */
-  if ( listen(sd, 10) != 0 ) {
-    fprintf(stderr, "listen failed\n");
-    exit(1);
-  }
-
-    /* start to read the camera, push picture buffers into global buffer */
-    g_buf = (unsigned char *) calloc(1, (size_t)cd.videoIn->framesizeIn);
-
-    pthread_create(&cam, NULL, cam_thread, NULL);
-    pthread_detach(cam);
-
-    while( 1 ) {
-        client_sock = accept(sd, (struct sockaddr *)&client_addr, (socklen_t*)&c);
-
-        if (client_sock < 0) {
-            perror("accept failed");
-            continue;
-        }
-        //printf("client %d\n", client_sock);
-        ca = malloc(sizeof(struct clientArgs));
-        ca->socket= client_sock;
-
-        if( pthread_create(&client, NULL,  client_thread, ca) < 0) {
-            perror("could not create client thread");
-            return 1;
-        }
-    }
-
-    return 0;
+  http_listener();
+  return 0;
 }
