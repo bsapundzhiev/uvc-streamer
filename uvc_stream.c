@@ -61,11 +61,13 @@
 #include "v4l2uvc.h"
 #include "utils.h"
 #include "jpeg_utils.h"
+#include "cqueue.h"
 
 #define SOURCE_VERSION "1.0"
 #define BOUNDARY "arflebarfle"
 #define VIDEODEV "/dev/video0"
 #define NELEMS(x) (sizeof(x) / sizeof((x)[0]))
+#define QMAX 3
 
 typedef enum { SNAPSHOT, STREAM } answer_t;
 
@@ -77,16 +79,19 @@ struct control_data {
   int quality;
 };
 
+struct buff {
+  int size;
+  unsigned char *buff;
+};
+
 struct thread_buff {
   pthread_mutex_t lock;
   pthread_cond_t  cond;
-  int size;
-  unsigned char *buff;
+  cqueue_t qbuff;
 } tbuff = {
   PTHREAD_MUTEX_INITIALIZER,
   PTHREAD_COND_INITIALIZER,
-  0,
-  NULL
+  {0,0},
 };
 
 struct clientArgs {
@@ -168,17 +173,11 @@ void *client_thread( void *arg ) {
   /* mjpeg server push */
   while ( ok >= 0 && !stop ) {
 
-    /* having a problem with windows (do we not always) browsers not updating the
-       stream display, unless the browser cache is disabled - try and implement a delay
-       to allow movement to end before streem goes on - kind of works, but not well enough */
-
-    /*if (cd.moved > 0){
-      usleep(1000);
-      cd.moved = 0;
-    }*/
-
     pthread_mutex_lock(&(ca->ptbuff)->lock);
     pthread_cond_wait(&(tbuff)->cond, &(tbuff)->lock);
+
+    struct buff *b = queue_front(&(tbuff)->qbuff);
+    pthread_mutex_unlock( &(ca->ptbuff)->lock );
 
     if ( answer == STREAM ) {
       sprintf(buffer,
@@ -186,14 +185,11 @@ void *client_thread( void *arg ) {
         "Content-type: image/jpeg\n\n");
 
       if(write(fd, buffer, strlen(buffer)) < 0) {
-        pthread_mutex_unlock( &(ca->ptbuff)->lock );
         break;
       }
     }
 
-    ok = print_picture(fd, tbuff->buff, tbuff->size);
-
-    pthread_mutex_unlock( &(ca->ptbuff)->lock );
+    ok = print_picture(fd, b->buff, b->size);
 
     if( ok < 0 || answer == SNAPSHOT ) {
       break;
@@ -225,23 +221,26 @@ void *cam_thread( void *arg ) {
     * Getting JPEGs straight from the webcam, is one of the major advantages of
     * Linux-UVC compatible devices.
     */
+    struct buff * b = queue_front(&(tbuff)->qbuff);
+
     if(cd.videoIn->formatIn == V4L2_PIX_FMT_YUYV) {
 
-       tbuff->size = compress_yuyv_to_jpeg(cd.videoIn, tbuff->buff, cd.videoIn->framesizeIn, cd.quality);
+       b->size = compress_yuyv_to_jpeg(cd.videoIn, b->buff, cd.videoIn->framesizeIn, cd.quality);
     }
     else if(cd.videoIn->formatIn == V4L2_PIX_FMT_SRGGB8) {
 
-       tbuff->size = compress_rggb_to_jpeg(cd.videoIn, tbuff->buff, cd.videoIn->framesizeIn, cd.quality);
+       b->size = compress_rggb_to_jpeg(cd.videoIn, b->buff, cd.videoIn->framesizeIn, cd.quality);
     }
     else if(cd.videoIn->formatIn == V4L2_PIX_FMT_RGB24) {
 
-       tbuff->size = compress_rgb_to_jpeg(cd.videoIn, tbuff->buff, cd.videoIn->framesizeIn, cd.quality);
+       b->size = compress_rgb_to_jpeg(cd.videoIn, b->buff, cd.videoIn->framesizeIn, cd.quality);
     }
     else {
-      tbuff->size = cd.videoIn->framesizeIn;
-      memcpy(tbuff->buff, cd.videoIn->tmpbuffer, cd.videoIn->framesizeIn);
-      //g_size = memcpy_picture(g_buf, cd.videoIn->tmpbuffer, cd.videoIn->buf.bytesused);
+      b->size = cd.videoIn->framesizeIn;
+      memcpy(b->buff, cd.videoIn->tmpbuffer, cd.videoIn->framesizeIn);
     }
+
+    queue_push(&(tbuff)->qbuff, b);
 
     /* signal fresh_frame */
     pthread_cond_broadcast(&tbuff->cond);
@@ -528,7 +527,13 @@ int main(int argc, char *argv[])
   }
 
   /* start to read the camera, push picture buffers into global buffer */
-  tbuff.buff = (unsigned char *) calloc(1, (size_t)cd.videoIn->framesizeIn);
+  init_queue(&tbuff.qbuff, QMAX);
+  for(i=0; i  < QMAX; i++){
+    struct buff *b = malloc(sizeof(b));
+    b->buff =(unsigned char *) calloc(1, (size_t)cd.videoIn->framesizeIn);
+    queue_push(&tbuff.qbuff, b);
+  }
+
   pthread_create(&cam, NULL, cam_thread, &tbuff);
   pthread_detach(cam);
 

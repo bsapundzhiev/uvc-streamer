@@ -18,7 +18,7 @@ LFLAGS += -lpthread -L ./jpeg-8/.libs -ljpeg
 endif
 
 APP_BINARY=uvc_stream
-OBJECTS=uvc_stream.o utils.o v4l2uvc.o jpeg_utils.o
+OBJECTS=uvc_stream.o utils.o v4l2uvc.o jpeg_utils.o cqueue.o
 
 all: uga_buga
 

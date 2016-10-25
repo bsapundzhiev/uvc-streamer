@@ -40,7 +40,7 @@ init_videoIn(struct vdIn *vd, char *device, int width, int height, int fps,
   if (width == 0 || height == 0)
     return -1;
   if (grabmethod < 0 || grabmethod > 1)
-    grabmethod = 1;             // mmap by default;
+    grabmethod = 1;             /* mmap by default;*/
   vd->videodevice = NULL;
   vd->status = NULL;
   vd->pictName = NULL;
@@ -48,10 +48,10 @@ init_videoIn(struct vdIn *vd, char *device, int width, int height, int fps,
   vd->status = (char *) calloc(1, 100 * sizeof(char));
   vd->pictName = (char *) calloc(1, 80 * sizeof(char));
   snprintf(vd->videodevice, 12, "%s", device);
-  //printf("video %s \n", vd->videodevice);
-  //vd->toggleAvi = 0;
-  //vd->avifile = NULL;
-  //vd->avifilename = NULL;
+  /*printf("video %s \n", vd->videodevice);
+  vd->toggleAvi = 0;
+  vd->avifile = NULL;
+  vd->avifilename = NULL;*/
   vd->recordtime = 0;
   vd->framecount = 0;
   vd->recordstart = 0;
@@ -158,14 +158,14 @@ static int init_v4l2(struct vdIn *vd)
   }
   if ((vd->fmt.fmt.pix.width != vd->width) ||
       (vd->fmt.fmt.pix.height != vd->height)) {
-    printf(" format asked unavailable get width %d height %d \n",
+    printf("format asked unavailable get width %d height %d \n",
            vd->fmt.fmt.pix.width, vd->fmt.fmt.pix.height);
     vd->width = vd->fmt.fmt.pix.width;
     vd->height = vd->fmt.fmt.pix.height;
     /*
      * look the format is not part of the deal ???
      */
-    // vd->formatIn = vd->fmt.fmt.pix.pixelformat;
+    /* vd->formatIn = vd->fmt.fmt.pix.pixelformat;*/
   }
 
   /*
@@ -389,14 +389,12 @@ int v4l2SetControl(struct vdIn *vd, int control, int value)
 {
     struct v4l2_control control_s;
     struct v4l2_queryctrl queryctrl;
-    int min, max;// step, val_def;
+    int min, max;
     int err;
     if (isv4l2Control(vd, control, &queryctrl) < 0)
 	return -1;
     min = queryctrl.minimum;
     max = queryctrl.maximum;
-    //step = queryctrl.step;
-    //val_def = queryctrl.default_value;
     if ((value >= min) && (value <= max)) {
 	control_s.id = control;
 	control_s.value = value;
