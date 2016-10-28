@@ -25,7 +25,7 @@
 #include <stdlib.h>
 
 #include "v4l2uvc.h"
-#include "utils.h"
+
 
 static int debug = 0;
 
