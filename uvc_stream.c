@@ -59,7 +59,6 @@
 #include <pthread.h>
 
 #include "v4l2uvc.h"
-/*#include "utils.h"*/
 #include "jpeg_utils.h"
 #include "cqueue.h"
 #include "http.h"
@@ -101,8 +100,12 @@ struct thread_buff tbuff = {
   PTHREAD_COND_INITIALIZER,
   {0,0},
 };
+
+static void print_version(void);
+static void help(char *progname);
+
 /* the single writer thread */
-void *cam_thread( void *arg ) {
+static void *cam_thread( void *arg ) {
 
   struct thread_buff *tbuff = (struct thread_buff*)arg;
   struct buff * b = NULL;
@@ -156,24 +159,7 @@ void *cam_thread( void *arg ) {
   pthread_exit(NULL);
 }
 
-void help(char *progname)
-{
-  fprintf(stderr, "Usage: %s\n" \
-    " [-h, --help ]          display this help\n" \
-    " [-d, --device ]        video device to open (your camera)\n" \
-    " [-r, --resolution ]    960x720, 640x480, 320x240, 160x120\n" \
-    " [-f, --fps ]           frames per second\n" \
-    " [-p, --port ]          TCP-port for the stream server\n" \
-    " [-u ]                  server user(default uvc_user)\n"\
-    " [-P ]                  server password\n"\
-    " [-y ]                  use YUYV format\n" \
-    " [-g ]                  use RGGB format\n" \
-    " [-q ]                  compression quality\n" \
-    " [-v | --version ]      display version information\n" \
-    " [-b | --background]    fork to the background, daemon mode\n", progname);
-}
-
-void signal_handler(int sigm) {
+static void signal_handler(int sigm) {
   /* signal "stop" to threads */
   stop = 1;
   /* cleanup most important structures */
@@ -192,7 +178,7 @@ void signal_handler(int sigm) {
   exit(0);
 }
 
-void daemon_mode(void) {
+static void daemon_mode(void) {
   int fr=0;
 
   fr = fork();
@@ -225,7 +211,6 @@ void daemon_mode(void) {
 /* Main */
 int main(int argc, char *argv[])
 {
-
   char *dev = VIDEODEV;
   char *fmtStr = "UNKNOWN";
   int i;
@@ -302,13 +287,13 @@ int main(int argc, char *argv[])
       /* f, fps */
       case 6:
       case 7:
-        cd.fps=atoi(optarg);
+        cd.fps = atoi(optarg);
         break;
 
       /* p, port */
       case 8:
       case 9:
-        server.port=htons(atoi(optarg));
+        server.port = htons(atoi(optarg));
         break;
       /*u*/
       case 10:
@@ -333,14 +318,12 @@ int main(int argc, char *argv[])
       /* v, version */
       case 15:
       case 16:
-        printf("UVC Streamer Version: %s (%s %s)\n", SOURCE_VERSION, __DATE__, __TIME__);
+        print_version();
         return 0;
-        break;
-
       /* b, background */
       case 17:
       case 18:
-        cd.daemon=1;
+        cd.daemon = 1;
         break;
 
       default:
@@ -371,10 +354,10 @@ int main(int argc, char *argv[])
   }
 
   fprintf(stderr, "Using V4L2 device: %s\n", dev);
-  fprintf(stderr, "\tFormat: %s\n", fmtStr);
-  fprintf(stderr, "\tJPEG quality: %i\n", cd.quality);
-  fprintf(stderr, "\tResolution: %i x %i @ %i fps\n", cd.width, cd.height, cd.fps);
-  fprintf(stderr, "TCP port: %i user: %s pass: %s\n", ntohs(server.port), 
+  fprintf(stderr, "Format: %s\n", fmtStr);
+  fprintf(stderr, "JPEG quality: %i\n", cd.quality);
+  fprintf(stderr, "Resolution: %i x %i @ %i fps\n", cd.width, cd.height, cd.fps);
+  fprintf(stderr, "TCP port: %i user: %s pass: %s\n", ntohs(server.port),
                   server.username, server.password ? "*****" : "none !!!");
   /* open video device and prepare data structure */
   cd.video_dev = init_videoIn(cd.videoIn, dev, cd.width, cd.height, cd.fps, cd.format, 1);
@@ -397,4 +380,32 @@ int main(int argc, char *argv[])
   server.ptbuff = &tbuff;
   http_listener(&server);
   return 0;
+}
+
+void help(char *progname)
+{
+  fprintf(stderr, "Usage: %s\n" \
+    " [-h, --help ]          display this help\n" \
+    " [-d, --device ]        video device to open (your camera)\n" \
+    " [-r, --resolution ]    960x720, 640x480, 320x240, 160x120\n" \
+    " [-f, --fps ]           frames per second\n" \
+    " [-p, --port ]          TCP-port for the stream server\n" \
+    " [-u ]                  server user(default uvc_user)\n"\
+    " [-P ]                  server password\n"\
+    " [-y ]                  use YUYV format\n" \
+    " [-g ]                  use RGGB format\n" \
+    " [-q ]                  compression quality\n" \
+    " [-v | --version ]      display version information\n" \
+    " [-b | --background]    fork to the background, daemon mode\n", progname);
+}
+
+void print_version()
+{
+  printf("UVC Streamer Version: %s (%s %s)\n"
+    "Copyright (C) 2016 Borislav Sapundzhiev <bsapundjiev@gmail.com>\n"
+    "Copyright (C) 2005 2006 Laurent Pinchart &&  Michel Xhaard\n"
+    "Copyright (C) 2007      Tom Stöveken\n"
+    "License GPLv2: GNU GPL version 2 or later <http://gnu.org/licenses/gpl.html>\n\n"
+    "This is free software; you are free to change and redistribute it.\n"
+    "There is NO WARRANTY, to the extent permitted by law.\n", SOURCE_VERSION, __DATE__, __TIME__);
 }
