@@ -15,22 +15,22 @@ struct thread_buff {
 /* client thread type */
 typedef void *(*client_thread_t)(void *);
 
-struct clientArgs {
-  int socket;
-  char *username;
-  char *password;
-  struct thread_buff *ptbuff;
-  struct sockaddr_in client_addr;
-};
-
 struct http_server {
   int sd;
   int port;
+  char *username;
+  char *password;
+  struct thread_buff *ptbuff;
   pthread_t client;
   client_thread_t client_thread;
 } server;
 
+struct clientArgs {
+  int socket;
+  struct sockaddr_in client_addr;
+  struct http_server *server;
+};
+
 int http_listener(struct http_server *srv);
-void *http_client_thread( void *arg );
 
 #endif

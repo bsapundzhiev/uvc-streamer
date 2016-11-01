@@ -68,10 +68,12 @@
 #define VIDEODEV "/dev/video0"
 #define NELEMS(x) (sizeof(x) / sizeof((x)[0]))
 #define QMAX 3
+#define SERVER_USER "uvc_user"
 
 struct control_data {
   struct vdIn *videoIn;
-  int width, height;
+  int width;
+  int height;
   int video_dev;
   int quality;
   int fps, daemon;
@@ -99,7 +101,6 @@ struct thread_buff tbuff = {
   PTHREAD_COND_INITIALIZER,
   {0,0},
 };
-
 /* the single writer thread */
 void *cam_thread( void *arg ) {
 
@@ -162,7 +163,9 @@ void help(char *progname)
     " [-d, --device ]        video device to open (your camera)\n" \
     " [-r, --resolution ]    960x720, 640x480, 320x240, 160x120\n" \
     " [-f, --fps ]           frames per second\n" \
-    " [-p, --port ]          TCP-port for the server\n" \
+    " [-p, --port ]          TCP-port for the stream server\n" \
+    " [-u ]                  server user(default uvc_user)\n"\
+    " [-P ]                  server password\n"\
     " [-y ]                  use YUYV format\n" \
     " [-g ]                  use RGGB format\n" \
     " [-q ]                  compression quality\n" \
@@ -233,6 +236,7 @@ int main(int argc, char *argv[])
   cd.height=480;
   server.port = htons(8080);
   cd.quality = 40;
+  server.username = SERVER_USER;
 
   while(1) {
     int option_index = 0, c=0;
@@ -248,6 +252,8 @@ int main(int argc, char *argv[])
       {"fps", required_argument, 0, 0},
       {"p", required_argument, 0, 0},
       {"port", required_argument, 0, 0},
+      {"u", required_argument, 0, 0},
+      {"P", required_argument, 0, 0},
       {"y", no_argument, 0, 0},
       {"g", no_argument, 0, 0},
       {"q", required_argument, 0, 0},
@@ -304,31 +310,36 @@ int main(int argc, char *argv[])
       case 9:
         server.port=htons(atoi(optarg));
         break;
-
-      /* y */
+      /*u*/
       case 10:
+        server.username = optarg;
+        break;
+      /*P*/
+      case 11:
+        server.password = optarg;
+        break;
+      /* y */
+      case 12:
         cd.format = V4L2_PIX_FMT_YUYV;
         break;
       /* g */
-      case 11:
+      case 13:
         cd.format = V4L2_PIX_FMT_SRGGB8;
         break;
       /* q */
-      case 12:
+      case 14:
         cd.quality = atoi(optarg);
         break;
       /* v, version */
-      case 13:
-      case 14:
-        printf("UVC Streamer Version: %s\n" \
-               "Compilation Date....: %s\n" \
-               "Compilation Time....: %s\n", SOURCE_VERSION, __DATE__, __TIME__);
+      case 15:
+      case 16:
+        printf("UVC Streamer Version: %s (%s %s)\n", SOURCE_VERSION, __DATE__, __TIME__);
         return 0;
         break;
 
       /* b, background */
-      case 15:
-      case 16:
+      case 17:
+      case 18:
         cd.daemon=1;
         break;
 
@@ -360,11 +371,11 @@ int main(int argc, char *argv[])
   }
 
   fprintf(stderr, "Using V4L2 device: %s\n", dev);
-  fprintf(stderr, "Format: %s\n", fmtStr);
-  fprintf(stderr, "JPEG quality: %i\n", cd.quality);
-  fprintf(stderr, "Resolution: %i x %i\n", cd.width, cd.height);
-  fprintf(stderr, "frames per second %i\n", cd.fps);
-  fprintf(stderr, "TCP port: %i\n", ntohs(server.port));
+  fprintf(stderr, "\tFormat: %s\n", fmtStr);
+  fprintf(stderr, "\tJPEG quality: %i\n", cd.quality);
+  fprintf(stderr, "\tResolution: %i x %i @ %i fps\n", cd.width, cd.height, cd.fps);
+  fprintf(stderr, "TCP port: %i user: %s pass: %s\n", ntohs(server.port), 
+                  server.username, server.password ? "*****" : "none !!!");
   /* open video device and prepare data structure */
   cd.video_dev = init_videoIn(cd.videoIn, dev, cd.width, cd.height, cd.fps, cd.format, 1);
   if (cd.video_dev < 0) {
@@ -382,8 +393,8 @@ int main(int argc, char *argv[])
 
   pthread_create(&cd.cam, NULL, cam_thread, &tbuff);
   pthread_detach(cd.cam);
-
-  server.client_thread = http_client_thread;
+  /*start http streamer */
+  server.ptbuff = &tbuff;
   http_listener(&server);
   return 0;
 }

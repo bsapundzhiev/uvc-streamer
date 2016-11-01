@@ -51,11 +51,22 @@ static char bad_request_response[] =
   " </body>\n"
   "</html>\n";
 
+static char unautorized_request_response[] =
+  "HTTP/1.0 401 Unauthorized\n"
+  "Content-type: text/html\n"
+  "Server: UVC Streamer\n"
+  "\n"
+  "<html>\n"
+  " <body>\n"
+  "  <h1>Unauthorized</h1>\n"
+  "  <p>Invalid credentials.</p>\n"
+  " </body>\n"
+  "</html>\n";
+
 #define STREAM_URI    "/"
 #define SNAPSHOT_URI  "/snapshot.jpg"
+#define BUFF_MAX      1024
 
-/*FIXME: link in server struct */
-extern struct thread_buff tbuff;
 extern int stop;
 
 struct http_header {
@@ -177,7 +188,7 @@ static int http_parse_headers(struct http_header *header, const char *hdr_line)
 
 static int http_parse_header(struct clientArgs *client, struct http_header *header)
 {
-  char header_line[1024];
+  char header_line[BUFF_MAX];
   char *token = NULL;
   int res, count =0;
 
@@ -244,13 +255,12 @@ int http_digest_responce(struct http_digest_auth *auth,
 }
 
 /* thread for clients that connected to this server */
-void *http_client_thread( void *arg )
+static void *http_client_thread( void *arg )
 {
   struct clientArgs *ca = (struct clientArgs *)arg;
-  struct thread_buff *tbuff = ca->ptbuff;
-  int fd = ca->socket;
+  struct thread_buff *tbuff = ca->server->ptbuff;
   int ok = 1;
-  char buffer[1024] = {0};
+  char buffer[BUFF_MAX] = {0};
   answer_t answer = UNKNOWN;
   struct buff *b = NULL;
   struct http_header header;
@@ -260,23 +270,31 @@ void *http_client_thread( void *arg )
   pthread_detach(pthread_self());
 
   if(http_parse_header(ca, &header) < 0){
-    close(fd);
+    close(ca->socket);
     http_header_free(&header);
     free(arg);
     return NULL;
   }
 
   printf("request %s\n", header.uri);
-  if(ca->password) {
+
+  if(ca->server->password) {
      if(header.auth == NULL) {
-      snprintf(buffer, sizeof(buffer), AUTH_HEADER, digest_auth.realm, digest_auth.nonce, digest_auth.opaque );
-      write(fd, buffer, strlen(buffer));
-      close(fd);
+      snprintf(buffer, sizeof(buffer), AUTH_HEADER, digest_auth.realm, digest_auth.nonce, digest_auth.opaque);
+      write(ca->socket, buffer, strlen(buffer));
+      close(ca->socket);
       http_header_free(&header);
       free(arg);
       return NULL;
     } else {
-      http_digest_responce(&digest_auth, &header, ca->username, ca->password);
+      if(!http_digest_responce(&digest_auth, &header, ca->server->username, ca->server->password)) {
+        snprintf(buffer, sizeof(buffer), "%s", unautorized_request_response);
+        write(ca->socket, buffer, strlen(buffer));
+        close(ca->socket);
+        http_header_free(&header);
+        free(arg);
+        return NULL;
+      }
     }
   }
 
@@ -290,16 +308,16 @@ void *http_client_thread( void *arg )
     snprintf(buffer, sizeof(buffer), "%s", bad_request_response);
   }
 
-  ok = ( write(fd, buffer, strlen(buffer)) >= 0)?1:0;
+  ok = ( write(ca->socket, buffer, strlen(buffer)) >= 0)?1:0;
 
   /* mjpeg server push */
   while ( ok >= 0 && !stop && answer != UNKNOWN) {
 
-    pthread_mutex_lock(&(ca->ptbuff)->lock);
+    pthread_mutex_lock(&(tbuff)->lock);
     pthread_cond_wait(&(tbuff)->cond, &(tbuff)->lock);
     if (stop) {
       printf("Exit client thread\n");
-      pthread_mutex_unlock( &(ca->ptbuff)->lock );
+      pthread_mutex_unlock( &(tbuff)->lock );
       pthread_exit(NULL);
     }
     b = queue_front(&(tbuff)->qbuff);
@@ -309,20 +327,20 @@ void *http_client_thread( void *arg )
         "--" BOUNDARY "\n" \
         "Content-type: image/jpeg\n\n");
 
-      if(write(fd, buffer, strlen(buffer)) < 0) {
-        pthread_mutex_unlock( &(ca->ptbuff)->lock );
+      if(write(ca->socket, buffer, strlen(buffer)) < 0) {
+        pthread_mutex_unlock( &(tbuff)->lock );
         break;
       }
     }
 
-    ok = print_picture(fd, b->buff, b->size);
-    pthread_mutex_unlock( &(ca->ptbuff)->lock );
+    ok = print_picture(ca->socket, b->buff, b->size);
+    pthread_mutex_unlock( &(tbuff)->lock );
     if( ok < 0 || answer == SNAPSHOT ) {
       break;
     }
   }
 
-  close(fd);
+  close(ca->socket);
   http_header_free(&header);
   free(arg);
   return NULL;
@@ -364,12 +382,11 @@ int http_listener(struct http_server *srv)
     exit(1);
   }
 
+  srv->client_thread = http_client_thread;
   while( 1 ) {
 
     ca = malloc(sizeof(struct clientArgs));
-    ca->username = NULL;
-    ca->password = NULL;
-    ca->ptbuff = &tbuff;
+    ca->server = srv;
     ca->socket = accept(srv->sd, (struct sockaddr *)&ca->client_addr, (socklen_t*)&c);
     if (ca->socket < 0) {
       perror("accept failed");
