@@ -14,10 +14,6 @@
 #include "cqueue.h"
 #include "http.h"
 
-#define BOUNDARY "arflebarfle"
-#define REALM    "Private"
-typedef enum { UNKNOWN, SNAPSHOT, STREAM } answer_t;
-
 #define SNAPSHOT_HEADER "HTTP/1.0 200 OK\r\n" \
   "Server: UVC Streamer\r\n" \
   "Access-Control-Allow-Origin: *\r\n" \
@@ -63,16 +59,33 @@ static char unautorized_request_response[] =
   " </body>\n"
   "</html>\n";
 
+static char not_found_request_response[] = 
+  "HTTP/1.1 404 Not Found\n"
+  "Content-type: text/html\n"
+  "Server: UVC Streamer\n"
+  "\n"
+  "<html>\n"
+  "  <body>\n"
+  "   <h1>Not Found</h1>\n"
+  "   <p>The requested URL %s was not found on this server.</p>\n"
+  "  </body>\n"
+  "</html>\n";
+
+#define BOUNDARY      "arflebarfle"
+#define REALM         "Private"
 #define STREAM_URI    "/"
 #define SNAPSHOT_URI  "/snapshot.jpg"
 #define BUFF_MAX      1024
+#define READ_TIMEOUT  5
 
 extern int stop;
+typedef enum { UNKNOWN, SNAPSHOT, STREAM } request_t;
 
 struct http_header {
   char *method;
   char *uri;
   char *auth;
+  request_t request_type;
 };
 
 struct http_digest_auth {
@@ -120,8 +133,9 @@ static void md5str(const char *data, int len, char *md5string) {
 
 static int data_available(int socket, int timeout)
 {
-  struct timeval to = {.tv_sec = timeout, .tv_usec = 0};
+  struct timeval to;
   fd_set fds;
+  to.tv_sec = timeout, to.tv_usec = 0;
   FD_ZERO(&fds);
   FD_SET(socket, &fds);
   return select(socket+1, &fds, NULL, NULL, &to);
@@ -132,12 +146,11 @@ static int http_header_readline(int fd, char *buf, int len)
   char *ptr = buf;
   char *ptr_end = ptr + len - 1;
 
-  if(data_available(fd, 5) <= 0){
+  if(data_available(fd, 5) <= 0) {
     return -1;
   }
 
   while (ptr < ptr_end) {
-    /* get readhandler here */
     switch (read(fd, ptr, 1)) {
     case 1:
       if (*ptr == '\r')
@@ -176,8 +189,8 @@ static int http_parse_headers(struct http_header *header, const char *hdr_line)
     header_content++;
   } while (*header_content == ' ');
 
-  //printf("hdr '%s' : '%s'\n", header_name, header_content);
-  //TODO:fixme
+  /*printf("hdr '%s' : '%s'\n", header_name, header_content);
+    TODO:fixme*/
   if(!strcmp("Authorization", header_name)){
     header->auth = strdup(header_content);
   }
@@ -208,10 +221,18 @@ static int http_parse_header(struct clientArgs *client, struct http_header *head
       }
 
     } else {
-
       http_parse_headers(header, header_line);
     }
     count++;
+  }
+
+  if(header->uri) {
+    if(!strcmp(header->uri , SNAPSHOT_URI)) {
+      header->request_type = SNAPSHOT;
+    }  
+    if (!strcmp(header->uri , STREAM_URI)) {
+      header->request_type = STREAM;
+    }
   }
   return res;
 }
@@ -238,13 +259,14 @@ void http_digest_init(struct http_digest_auth *auth)
   md5str(auth->realm, strlen(auth->realm), auth->opaque);
 }
 
-int http_digest_responce(struct http_digest_auth *auth,
-                          struct http_header *hdr,
-                          char* username, char *password)
+int http_digest_responce(struct clientArgs *client, 
+                        struct http_digest_auth *auth,
+                        struct http_header *hdr)
 {
   char A1[33], A2[33];
   char response_hash[33], buff[256];
-  sprintf(buff, "%s:%s:%s", username, auth->realm, password);
+  sprintf(buff, "%s:%s:%s", client->server->username, 
+    auth->realm, client->server->password);
   md5str(buff, strlen(buff), A1);
   sprintf(buff, "%s:%s", hdr->method, hdr->uri);
   md5str(buff, strlen(buff), A2);
@@ -261,7 +283,7 @@ static void *http_client_thread( void *arg )
   struct thread_buff *tbuff = ca->server->ptbuff;
   int ok = 1;
   char buffer[BUFF_MAX] = {0};
-  answer_t answer = UNKNOWN;
+ 
   struct buff *b = NULL;
   struct http_header header;
   struct http_digest_auth digest_auth;
@@ -280,14 +302,15 @@ static void *http_client_thread( void *arg )
 
   if(ca->server->password) {
      if(header.auth == NULL) {
-      snprintf(buffer, sizeof(buffer), AUTH_HEADER, digest_auth.realm, digest_auth.nonce, digest_auth.opaque);
-      write(ca->socket, buffer, strlen(buffer));
+      snprintf(buffer, sizeof(buffer), AUTH_HEADER, 
+        digest_auth.realm, digest_auth.nonce, digest_auth.opaque);
+      ok = write(ca->socket, buffer, strlen(buffer));
       close(ca->socket);
       http_header_free(&header);
       free(arg);
       return NULL;
     } else {
-      if(!http_digest_responce(&digest_auth, &header, ca->server->username, ca->server->password)) {
+      if(!http_digest_responce(ca, &digest_auth, &header)) {
         snprintf(buffer, sizeof(buffer), "%s", unautorized_request_response);
         write(ca->socket, buffer, strlen(buffer));
         close(ca->socket);
@@ -298,31 +321,29 @@ static void *http_client_thread( void *arg )
     }
   }
 
-  if(!strcmp(header.uri , SNAPSHOT_URI)) {
-    answer = SNAPSHOT;
-    snprintf(buffer, sizeof(buffer), SNAPSHOT_HEADER);
-  } else if (!strcmp(header.uri , STREAM_URI)) {
-    answer = STREAM;
-    snprintf(buffer, sizeof(buffer), STREAM_HEADER);
-  } else {
-    snprintf(buffer, sizeof(buffer), "%s", bad_request_response);
+  switch(header.request_type) {
+    case SNAPSHOT:
+      snprintf(buffer, sizeof(buffer), SNAPSHOT_HEADER);
+    break;
+    case STREAM:
+      snprintf(buffer, sizeof(buffer), STREAM_HEADER);
+    break;
+    default:
+      snprintf(buffer, sizeof(buffer), not_found_request_response, header.uri);
+    break;
   }
 
   ok = ( write(ca->socket, buffer, strlen(buffer)) >= 0)?1:0;
 
   /* mjpeg server push */
-  while ( ok >= 0 && !stop && answer != UNKNOWN) {
+  while ( ok >= 0 && !stop && header.request_type != STREAM) {
 
     pthread_mutex_lock(&(tbuff)->lock);
     pthread_cond_wait(&(tbuff)->cond, &(tbuff)->lock);
-    if (stop) {
-      printf("Exit client thread\n");
-      pthread_mutex_unlock( &(tbuff)->lock );
-      pthread_exit(NULL);
-    }
+
     b = queue_front(&(tbuff)->qbuff);
 
-    if ( answer == STREAM ) {
+    if ( header.request_type == STREAM ) {
       sprintf(buffer,
         "--" BOUNDARY "\n" \
         "Content-type: image/jpeg\n\n");
@@ -335,9 +356,6 @@ static void *http_client_thread( void *arg )
 
     ok = print_picture(ca->socket, b->buff, b->size);
     pthread_mutex_unlock( &(tbuff)->lock );
-    if( ok < 0 || answer == SNAPSHOT ) {
-      break;
-    }
   }
 
   close(ca->socket);
@@ -384,7 +402,7 @@ int http_listener(struct http_server *srv)
 
   srv->client_thread = http_client_thread;
   while( 1 ) {
-
+    /* alloc new client */
     ca = malloc(sizeof(struct clientArgs));
     ca->server = srv;
     ca->socket = accept(srv->sd, (struct sockaddr *)&ca->client_addr, (socklen_t*)&c);

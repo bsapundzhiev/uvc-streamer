@@ -62,6 +62,7 @@
 #include "jpeg_utils.h"
 #include "cqueue.h"
 #include "http.h"
+#include "avilib.h"
 
 #define SOURCE_VERSION "1.0"
 #define VIDEODEV "/dev/video0"
@@ -77,12 +78,20 @@ struct control_data {
   int quality;
   int fps, daemon;
   int format;
-  pthread_t cam;
+  char *filename;
+  pthread_t tcam;
+  pthread_t trecorder;
 };
 
 struct pixel_format {
   char *name;
   int format;
+};
+
+struct resolutions{
+  char *name;
+  int width;
+  int height;
 };
 
 struct pixel_format pixel_formats[] = {
@@ -91,6 +100,14 @@ struct pixel_format pixel_formats[] = {
     {"YUYV",  V4L2_PIX_FMT_YUYV   },
     {"RGGB",  V4L2_PIX_FMT_SRGGB8 },
     {"RGB24", V4L2_PIX_FMT_RGB24  },
+};
+
+struct resolutions resolutions_formats[] = {
+  {"1280x720", 1280, 720  },
+  {"960x720",   960, 720  },
+  {"640x480",   640, 480  },
+  {"320x240",   320, 240  },
+  {"160x120",   160, 120  },
 };
 
 int stop=0;
@@ -159,6 +176,39 @@ static void *cam_thread( void *arg ) {
   pthread_exit(NULL);
 }
 
+static void *video_recoreder_thread(void *arg) 
+{
+  struct vdIn *vd = cd.videoIn;
+
+  struct thread_buff *tbuff = (struct thread_buff*)arg;
+  struct buff * b = NULL;
+
+  avi_t *avifile = AVI_open_output_file(cd.filename);
+  
+  if (vd->captureFile == NULL ) {
+    fprintf(stderr,"Error opening avifile %s\n", cd.filename);
+    exit(-1);
+  }
+
+  AVI_set_video(avifile, vd->width, vd->height, vd->fps, "MJPG");
+  printf("recording to %s\n", cd.filename);
+
+  while(!stop) {
+
+    pthread_mutex_lock(&(tbuff)->lock);
+    pthread_cond_wait(&(tbuff)->cond, &(tbuff)->lock);
+
+    b = queue_front(&(tbuff)->qbuff);
+    AVI_write_frame(avifile, (char*)b->buff, b->size, vd->framecount);
+    vd->framecount++;
+    
+    pthread_mutex_unlock(&(tbuff)->lock);
+  }
+
+  AVI_close(avifile);
+  pthread_exit(NULL);
+}
+
 static void signal_handler(int sigm) {
   /* signal "stop" to threads */
   stop = 1;
@@ -166,8 +216,8 @@ static void signal_handler(int sigm) {
   fprintf(stderr, "Shutdown...\n");
   pthread_cond_broadcast(&tbuff.cond);
   pthread_join(server.client, NULL);
-  usleep(1000*1000);
-  pthread_join(cd.cam, NULL);
+  usleep(1000 * 1000);
+  pthread_join(cd.tcam, NULL);
   close_v4l2(cd.videoIn);
   free(cd.videoIn);
   if (close (server.sd) < 0) {
@@ -246,6 +296,7 @@ int main(int argc, char *argv[])
       {"version", no_argument, 0, 0},
       {"b", no_argument, 0, 0},
       {"background", no_argument, 0, 0},
+      {"o", required_argument, 0, 0},
       {0, 0, 0, 0}
     };
 
@@ -274,13 +325,11 @@ int main(int argc, char *argv[])
       /* r, resolution */
       case 4:
       case 5:
-         if ( strcmp("1280x720", optarg) == 0 ) { cd.width=1280; cd.height=720; }
-          else if ( strcmp("960x720", optarg) == 0 ) { cd.width=960; cd.height=720; }
-          else if ( strcmp("640x480", optarg) == 0 ) { cd.width=640; cd.height=480; }
-          else if ( strcmp("320x240", optarg) == 0 ) { cd.width=320; cd.height=240; }
-          else if ( strcmp("160x120", optarg) == 0 ) { cd.width=160; cd.height=120; }
-          else {
-            fprintf(stderr, "ignoring unsupported resolution\n");
+          for(i = 0; i < NELEMS(resolutions_formats); i++){
+            if(!strcmp(resolutions_formats[i].name, optarg)) {
+                cd.width = resolutions_formats[i].width;
+                cd.height = resolutions_formats[i].height;
+            }
           }
         break;
 
@@ -325,7 +374,9 @@ int main(int argc, char *argv[])
       case 18:
         cd.daemon = 1;
         break;
-
+      case 19:
+        cd.filename = optarg;
+        break;
       default:
         help(argv[0]);
         return 0;
@@ -337,11 +388,6 @@ int main(int argc, char *argv[])
   if (signal(SIGINT, signal_handler) == SIG_ERR) {
     fprintf(stderr, "could not register signal handler\n");
     exit(1);
-  }
-
-  /* fork to the background */
-  if ( cd.daemon ) {
-    daemon_mode();
   }
 
   /* allocate webcam datastructure */
@@ -366,6 +412,11 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
+  /* fork to the background */
+  if ( cd.daemon ) {
+    daemon_mode();
+  }
+
   /* start to read the camera, push picture buffers into global buffer */
   init_queue(&tbuff.qbuff, QMAX);
   for(i=0; i  < QMAX; i++){
@@ -374,29 +425,38 @@ int main(int argc, char *argv[])
     queue_push(&tbuff.qbuff, b);
   }
 
-  pthread_create(&cd.cam, NULL, cam_thread, &tbuff);
-  pthread_detach(cd.cam);
-  /*start http streamer */
-  server.ptbuff = &tbuff;
-  http_listener(&server);
+  pthread_create(&cd.tcam, NULL, cam_thread, &tbuff);
+  pthread_detach(cd.tcam);
+
+  if(cd.filename) {
+    pthread_create(&cd.trecorder, NULL, video_recoreder_thread, &tbuff);
+    pthread_join(cd.trecorder, NULL);
+  } else {
+    /*start http streamer */
+    server.ptbuff = &tbuff;
+    http_listener(&server);
+  }
+
   return 0;
 }
 
 void help(char *progname)
 {
-  fprintf(stderr, "Usage: %s\n" \
-    " [-h, --help ]          display this help\n" \
-    " [-d, --device ]        video device to open (your camera)\n" \
-    " [-r, --resolution ]    960x720, 640x480, 320x240, 160x120\n" \
-    " [-f, --fps ]           frames per second\n" \
-    " [-p, --port ]          TCP-port for the stream server\n" \
-    " [-u ]                  server user(default uvc_user)\n"\
-    " [-P ]                  server password\n"\
-    " [-y ]                  use YUYV format\n" \
-    " [-g ]                  use RGGB format\n" \
-    " [-q ]                  compression quality\n" \
-    " [-v | --version ]      display version information\n" \
-    " [-b | --background]    fork to the background, daemon mode\n", progname);
+  fprintf(stderr, "Usage: %s\n"
+    " [-h, --help ]          display this help\n" 
+    " [-d, --device ]        video device to open (your camera)\n" 
+    " [-r, --resolution ]    e.g. 960x720, 640x480, 320x240, 160x120\n" 
+    " [-f, --fps ]           frames per second\n" 
+    " [-p, --port ]          TCP-port for the stream server\n" 
+    " [-u ]                  server user(default uvc_user)\n"
+    " [-P ]                  server password\n"
+    " [-y ]                  use YUYV format\n" 
+    " [-g ]                  use RGGB format\n" 
+    " [-q ]                  compression quality\n" 
+    " [-v | --version ]      display version information\n" 
+    " [-b | --background]    fork to the background, daemon mode\n"
+    " [-o ]                  output filename (.avi)\n"
+    "\n", progname);
 }
 
 void print_version()

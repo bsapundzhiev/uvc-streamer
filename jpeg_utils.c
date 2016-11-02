@@ -269,7 +269,7 @@ int compress_rgb_to_jpeg(struct vdIn *src, unsigned char* buffer, int size, int 
     struct jpeg_compress_struct cinfo;
     struct jpeg_error_mgr jerr;
     JSAMPROW row_pointer[1];
-    //int z;
+    
     unsigned char *line_buffer, *rgb;
     static int written;
 
@@ -291,7 +291,6 @@ int compress_rgb_to_jpeg(struct vdIn *src, unsigned char* buffer, int size, int 
 
     jpeg_start_compress (&cinfo, TRUE);
 
-    //z = 0;
     while (cinfo.next_scanline < src->height) {
         int x;
         unsigned char *ptr = line_buffer;

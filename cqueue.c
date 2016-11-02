@@ -32,22 +32,20 @@ void *queue_front(cqueue_t * q)
 void queue_push(cqueue_t * q, void *item)
 {
     if( is_full(q) ) {
-       //printf("Queue Overflow\n");
+       /*printf("Queue Overflow\n");*/
        q->count--;
     }
 
     q->rear = (q->rear+1) % q->max;
     q->ele[q->rear] = item;
     q->count++;
-
-    //printf("Inserted item : %d\n",*(int*)item);
 }
 
 void * queue_pop(cqueue_t * q)
 {
 	void *item;
     if(is_empty(q)){
-        //printf("Queue empty\n");
+        /*printf("Queue empty\n");*/
         return NULL;
     }
 

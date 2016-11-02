@@ -48,10 +48,7 @@ init_videoIn(struct vdIn *vd, char *device, int width, int height, int fps,
   vd->status = (char *) calloc(1, 100 * sizeof(char));
   vd->pictName = (char *) calloc(1, 80 * sizeof(char));
   snprintf(vd->videodevice, 12, "%s", device);
-  /*printf("video %s \n", vd->videodevice);
-  vd->toggleAvi = 0;
-  vd->avifile = NULL;
-  vd->avifilename = NULL;*/
+
   vd->recordtime = 0;
   vd->framecount = 0;
   vd->recordstart = 0;
@@ -67,11 +64,10 @@ init_videoIn(struct vdIn *vd, char *device, int width, int height, int fps,
   vd->rfsBytesWritten = 0;
   vd->rfsFramesWritten = 0;
   vd->captureFile = NULL;
-  vd->bytesWritten = 0;
-  vd->framesWritten = 0;
+  
   if (init_v4l2(vd) < 0) {
     printf(" Init v4L2 failed !! exit fatal \n");
-    goto error;;
+    goto error;
   }
 
   /*

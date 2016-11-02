@@ -68,14 +68,12 @@ struct vdIn {
     unsigned int rfsBytesWritten;
     /* raw stream capture */
     FILE *captureFile;
-    unsigned int framesWritten;
-    unsigned int bytesWritten;
     int framecount;
     int recordstart;
     int recordtime;
 };
-int
-init_videoIn(struct vdIn *vd, char *device, int width, int height, int fps, int format, int grabmethod);
+
+int init_videoIn(struct vdIn *vd, char *device, int width, int height, int fps, int format, int grabmethod);
 int enum_controls(int vd);
 int save_controls(int vd);
 int load_controls(int vd);
