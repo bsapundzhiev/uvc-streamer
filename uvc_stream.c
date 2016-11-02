@@ -176,7 +176,7 @@ static void *cam_thread( void *arg ) {
   pthread_exit(NULL);
 }
 
-static void *video_recoreder_thread(void *arg) 
+static void *video_recoreder_thread(void *arg)
 {
   struct vdIn *vd = cd.videoIn;
 
@@ -184,8 +184,8 @@ static void *video_recoreder_thread(void *arg)
   struct buff * b = NULL;
 
   avi_t *avifile = AVI_open_output_file(cd.filename);
-  
-  if (vd->captureFile == NULL ) {
+
+  if (avifile == NULL ) {
     fprintf(stderr,"Error opening avifile %s\n", cd.filename);
     exit(-1);
   }
@@ -201,10 +201,10 @@ static void *video_recoreder_thread(void *arg)
     b = queue_front(&(tbuff)->qbuff);
     AVI_write_frame(avifile, (char*)b->buff, b->size, vd->framecount);
     vd->framecount++;
-    
+
     pthread_mutex_unlock(&(tbuff)->lock);
   }
-
+  printf("exit vr thread\n");
   AVI_close(avifile);
   pthread_exit(NULL);
 }
@@ -443,17 +443,17 @@ int main(int argc, char *argv[])
 void help(char *progname)
 {
   fprintf(stderr, "Usage: %s\n"
-    " [-h, --help ]          display this help\n" 
-    " [-d, --device ]        video device to open (your camera)\n" 
-    " [-r, --resolution ]    e.g. 960x720, 640x480, 320x240, 160x120\n" 
-    " [-f, --fps ]           frames per second\n" 
-    " [-p, --port ]          TCP-port for the stream server\n" 
+    " [-h, --help ]          display this help\n"
+    " [-d, --device ]        video device to open (your camera)\n"
+    " [-r, --resolution ]    e.g. 960x720, 640x480, 320x240, 160x120\n"
+    " [-f, --fps ]           frames per second\n"
+    " [-p, --port ]          TCP-port for the stream server\n"
     " [-u ]                  server user(default uvc_user)\n"
     " [-P ]                  server password\n"
-    " [-y ]                  use YUYV format\n" 
-    " [-g ]                  use RGGB format\n" 
-    " [-q ]                  compression quality\n" 
-    " [-v | --version ]      display version information\n" 
+    " [-y ]                  use YUYV format\n"
+    " [-g ]                  use RGGB format\n"
+    " [-q ]                  compression quality\n"
+    " [-v | --version ]      display version information\n"
     " [-b | --background]    fork to the background, daemon mode\n"
     " [-o ]                  output filename (.avi)\n"
     "\n", progname);

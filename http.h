@@ -25,10 +25,15 @@ struct http_server {
   client_thread_t client_thread;
 } server;
 
+typedef enum { AUTH_NONE, AUTH_PENDING, AUTH_CHECK } auth_state_t;
+typedef enum { UNKNOWN, SNAPSHOT, STREAM } request_t;
+
 struct clientArgs {
   int socket;
   struct sockaddr_in client_addr;
   struct http_server *server;
+  auth_state_t auth_state;
+  request_t request_type;
 };
 
 int http_listener(struct http_server *srv);
