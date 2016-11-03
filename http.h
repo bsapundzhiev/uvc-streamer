@@ -26,7 +26,7 @@ struct http_server {
 } server;
 
 typedef enum { AUTH_NONE, AUTH_PENDING, AUTH_CHECK } auth_state_t;
-typedef enum { UNKNOWN, SNAPSHOT, STREAM } request_t;
+typedef enum { UNKNOWN, INVALID, SNAPSHOT, STREAM } request_t;
 
 struct clientArgs {
   int socket;

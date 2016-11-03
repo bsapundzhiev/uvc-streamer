@@ -29,6 +29,9 @@
   "Access-Control-Allow-Origin: *\r\n" \
   "\r\n"
 
+#define STREAM_HEADER_CHUNK "--" BOUNDARY "\n" \
+  "Content-type: image/jpeg\n\n"
+
 #define AUTH_HEADER "HTTP/1.1 401 Unauthorized\n"\
   "WWW-Authenticate: Digest    realm=\"%s\",\n"\
   "        algorithm=MD5,\n"\
@@ -73,7 +76,7 @@ static char not_found_request_response[] =
 
 #define BOUNDARY      "arflebarfle"
 #define REALM         "Private"
-#define STREAM_URI    "/"
+#define STREAM_URI    "/stream.mjpeg"
 #define SNAPSHOT_URI  "/snapshot.jpeg"
 #define BUFF_MAX      1024
 #define READ_TIMEOUT  30
@@ -188,9 +191,6 @@ static int http_parse_headers(struct http_header *header, const char *hdr_line)
     header_content++;
   } while (*header_content == ' ');
 
-  /*printf("hdr '%s' : '%s'\n", header_name, header_content);
-    TODO:fixme
-  */
   if(!strcmp("Authorization", header_name)){
     header->auth = strdup(header_content);
   }
@@ -237,6 +237,8 @@ static int http_parse_header(struct clientArgs *client, struct http_header *head
     if (!strcmp(header->uri, STREAM_URI)) {
       client->request_type = STREAM;
     }
+  } else {
+    client->request_type= INVALID;
   }
 
   if (client->server->password) {
@@ -306,7 +308,7 @@ static void *http_client_thread( void *arg )
     return NULL;
   }
 
-  printf("thread_id: %d request %s\n",(int)pthread_self(), header.uri);
+  printf("thread_id: %ld request %s\n", pthread_self(), header.uri);
 
   switch (ca->request_type) {
     case SNAPSHOT:
@@ -314,6 +316,10 @@ static void *http_client_thread( void *arg )
     break;
     case STREAM:
       snprintf(buffer, sizeof(buffer), STREAM_HEADER);
+    break;
+    case INVALID:
+      snprintf(buffer, sizeof(buffer), "%s", bad_request_response);
+      should_close_connection = 1;
     break;
     default:
       snprintf(buffer, sizeof(buffer), not_found_request_response, header.uri);
@@ -334,8 +340,6 @@ static void *http_client_thread( void *arg )
       }
     break;
     default:
-      snprintf(buffer, sizeof(buffer), "%s", bad_request_response);
-      should_close_connection = 1;
     break;
   }
 
@@ -357,9 +361,7 @@ static void *http_client_thread( void *arg )
     b = queue_front(&(tbuff)->qbuff);
 
     if (ca->request_type == STREAM) {
-      sprintf(buffer,
-        "--" BOUNDARY "\n" \
-        "Content-type: image/jpeg\n\n");
+      snprintf(buffer,sizeof(buffer), STREAM_HEADER_CHUNK);
 
       if(write(ca->socket, buffer, strlen(buffer)) < 0) {
         pthread_mutex_unlock( &(tbuff)->lock );
