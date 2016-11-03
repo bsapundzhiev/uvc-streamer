@@ -64,7 +64,7 @@
 #include "http.h"
 #include "avilib.h"
 
-#define SOURCE_VERSION "1.0"
+#define SOURCE_VERSION "1.0.1"
 #define VIDEODEV "/dev/video0"
 #define NELEMS(x) (sizeof(x) / sizeof((x)[0]))
 #define QMAX 3
@@ -103,10 +103,19 @@ struct pixel_format pixel_formats[] = {
 };
 
 struct resolutions resolutions_formats[] = {
+  /*https://en.wikipedia.org/wiki/Display_resolution#/media/File:Vector_Video_Standards8.svg*/
   {"1280x720", 1280, 720  },
   {"960x720",   960, 720  },
+  {"800x600",   800, 600  },
+  {"854x480",   854, 480  },
+  {"800x480",   800, 480  },
+  {"768x576",   768, 576  },
   {"640x480",   640, 480  },
+  {"480x320",   480, 320  },
+  {"384x288",   384, 288  },
+  {"352x288",   352, 288  },
   {"320x240",   320, 240  },
+  {"320x200",   320, 200  },
   {"160x120",   160, 120  },
 };
 
