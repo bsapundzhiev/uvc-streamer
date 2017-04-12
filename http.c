@@ -33,6 +33,7 @@
   "Content-type: image/jpeg\n\n"
 
 #define AUTH_HEADER "HTTP/1.1 401 Unauthorized\n"\
+  "Access-Control-Allow-Origin: *\r\n" \
   "WWW-Authenticate: Digest    realm=\"%s\",\n"\
   "        algorithm=MD5,\n"\
   "        nonce=\"%u\",\n"\
@@ -76,6 +77,7 @@ static char not_found_request_response[] =
 
 #define BOUNDARY      "arflebarfle"
 #define REALM         "Private"
+#define NONCE         1234
 #define STREAM_URI    "/stream.mjpeg"
 #define SNAPSHOT_URI  "/snapshot.jpeg"
 #define BUFF_MAX      1024
@@ -129,7 +131,7 @@ static void md5str(const char *data, int len, char *md5string) {
   MD5_Final(digest, &ctx);
 
   for(i = 0; i < 16; ++i) {
-    sprintf(&md5string[i*2], "%02x", (unsigned int)digest[i]);
+    snprintf(&md5string[i*2], 1, "%02x", (unsigned int)digest[i]);
   }
 }
 
@@ -266,7 +268,7 @@ static void http_header_free(struct http_header *header)
 void http_digest_init(struct http_digest_auth *auth)
 {
   auth->realm = REALM;
-  auth->nonce = FNV_hash32(1234);
+  auth->nonce = FNV_hash32(NONCE);
   md5str(auth->realm, strlen(auth->realm), auth->opaque);
 }
 
@@ -276,12 +278,12 @@ int http_digest_responce(struct clientArgs *client,
 {
   char A1[33], A2[33];
   char response_hash[33], buff[256];
-  sprintf(buff, "%s:%s:%s", client->server->username,
+  snprintf(buff, sizeof(buff)-1, "%s:%s:%s", client->server->username,
     auth->realm, client->server->password);
   md5str(buff, strlen(buff), A1);
-  sprintf(buff, "%s:%s", hdr->method, hdr->uri);
+  snprintf(buff, sizeof(buff)-1, "%s:%s", hdr->method, hdr->uri);
   md5str(buff, strlen(buff), A2);
-  sprintf(buff, "%s:%u:%s", A1, auth->nonce, A2);
+  snprintf(buff, sizeof(buff)-1, "%s:%u:%s", A1, auth->nonce, A2);
   md5str(buff, strlen(buff), response_hash);
 
   return (strstr(hdr->auth, response_hash) != NULL);

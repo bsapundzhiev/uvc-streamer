@@ -177,9 +177,9 @@ static void *cam_thread( void *arg ) {
     pthread_mutex_unlock(&tbuff->lock);
 
     /* only use usleep if the fps is below 5, otherwise the overhead is too long */
-    /*if ( cd.videoIn->fps < 5 ) {
+    if ( cd.videoIn->fps < 5 ) {
       usleep(1000*1000/cd.videoIn->fps);
-    }*/
+    }
   }
   printf("Exit cam thread\n");
   pthread_exit(NULL);
