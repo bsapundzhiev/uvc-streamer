@@ -31,7 +31,6 @@
 #include <sys/select.h>
 #include <linux/videodev2.h>
 
-#include "uvcvideo.h"
 
 #define NB_BUFFER 4
 #define DHT_SIZE 432
