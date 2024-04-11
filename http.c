@@ -141,7 +141,7 @@ static void md5str(const char *data, int len, char *md5string) {
   MD5_Final(digest, &ctx);
 
   for(i = 0; i < 16; ++i) {
-    snprintf(&md5string[i*2], 1, "%02x", (unsigned int)digest[i]);
+    snprintf(&md5string[i*2], 3, "%02x", (unsigned int)digest[i]);
   }
 }
 

@@ -203,6 +203,71 @@ int compress_yuyv_to_jpeg(struct vdIn *vd, unsigned char *buffer, int size, int 
     return (written);
 }
 
+/* 
+ * RGGB format
+ * https://www.kernel.org/doc/html/v4.8/media/uapi/v4l/pixfmt-srggb8.html
+ */
+int compress_rggb_to_jpeg(struct vdIn *vd, unsigned char* buffer, int size, int quality)
+{
+    struct jpeg_compress_struct cinfo;
+    struct jpeg_error_mgr jerr;
+    JSAMPROW row_pointer[1];
+    unsigned char *line_buffer, *rgb;
+    int z;
+    static int written;
+
+    line_buffer = calloc(vd->width * 3, 1);
+    rgb = vd->framebuffer;
+
+    cinfo.err = jpeg_std_error(&jerr);
+    jpeg_create_compress(&cinfo);
+    /* jpeg_stdio_dest (&cinfo, file); */
+    dest_buffer(&cinfo, buffer, size, &written);
+
+    cinfo.image_width = vd->width;
+    cinfo.image_height = vd->height;
+    cinfo.input_components = 3;
+    cinfo.in_color_space = JCS_RGB;
+
+    jpeg_set_defaults(&cinfo);
+    jpeg_set_quality(&cinfo, quality, TRUE);
+
+    jpeg_start_compress(&cinfo, TRUE);
+
+    z = 0;
+    while(cinfo.next_scanline < vd->height) {
+        int x;
+        unsigned char *ptr = line_buffer;
+
+        for(x = 0; x < vd->width; x++) {
+            int r, g, b;
+            
+            r = rgb[0];
+            g = (rgb[1] + rgb[2]) / 2;
+            b = rgb[3];
+
+            *(ptr++) = (r > 255) ? 255 : ((r < 0) ? 0 : r);
+            *(ptr++) = (g > 255) ? 255 : ((g < 0) ? 0 : g);
+            *(ptr++) = (b > 255) ? 255 : ((b < 0) ? 0 : b);
+
+             if(z++ == 3) {
+                z = 0;
+                rgb += 4;
+            }
+            
+        }
+
+        row_pointer[0] = line_buffer;
+        jpeg_write_scanlines(&cinfo, row_pointer, 1);
+    }
+
+    jpeg_finish_compress(&cinfo);
+    jpeg_destroy_compress(&cinfo);
+
+    free(line_buffer);
+
+    return (written);
+}
 
 /*
  * This function performs de-bayering - taking an 8-bit GRGR/BGBG bayer interlaced data
@@ -210,7 +275,7 @@ int compress_yuyv_to_jpeg(struct vdIn *vd, unsigned char *buffer, int size, int 
  * See: https://www.kernel.org/doc/html/v4.8/media/uapi/v4l/pixfmt-sgrbg8.html
  *      https://en.wikipedia.org/wiki/Bayer_filter
  */
-int compress_rggb_to_jpeg(struct vdIn *vd, unsigned char* buffer, int size, int quality)
+int compress_grbg_to_jpeg(struct vdIn *vd, unsigned char* buffer, int size, int quality)
 {
     struct jpeg_compress_struct cinfo;
     struct jpeg_error_mgr jerr;
