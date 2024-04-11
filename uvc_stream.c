@@ -64,7 +64,7 @@
 #include "http.h"
 #include "avilib.h"
 
-#define SOURCE_VERSION "1.0.1"
+#define SOURCE_VERSION "1.0.2"
 #define VIDEODEV "/dev/video0"
 #define NELEMS(x) (sizeof(x) / sizeof((x)[0]))
 #define QMAX 3
@@ -99,6 +99,7 @@ struct pixel_format pixel_formats[] = {
     {"JPEG",  V4L2_PIX_FMT_JPEG   },
     {"YUYV",  V4L2_PIX_FMT_YUYV   },
     {"RGGB",  V4L2_PIX_FMT_SRGGB8 },
+    {"GRBG",  V4L2_PIX_FMT_SGRBG8 },
     {"RGB24", V4L2_PIX_FMT_RGB24  },
 };
 
@@ -120,6 +121,7 @@ struct resolutions resolutions_formats[] = {
 };
 
 int stop=0;
+struct http_server server;
 struct control_data cd;
 struct thread_buff tbuff = {
   PTHREAD_MUTEX_INITIALIZER,
@@ -136,9 +138,9 @@ static void *cam_thread( void *arg ) {
   struct thread_buff *tbuff = (struct thread_buff*)arg;
   struct buff * b = NULL;
 
-  while( !stop ) {
+  while ( !stop ) {
     /* grab a frame */
-    if( uvcGrab(cd.videoIn) < 0 ) {
+    if ( uvcGrab(cd.videoIn) < 0 ) {
       fprintf(stderr, "Error grabbing\n");
       exit(1);
     }
@@ -154,15 +156,19 @@ static void *cam_thread( void *arg ) {
     */
     b = queue_pop(&(tbuff)->qbuff);
 
-    if(cd.videoIn->formatIn == V4L2_PIX_FMT_YUYV) {
+    if (cd.videoIn->formatIn == V4L2_PIX_FMT_YUYV) {
 
       b->size = compress_yuyv_to_jpeg(cd.videoIn, b->buff, cd.videoIn->framesizeIn, cd.quality);
     }
-    else if(cd.videoIn->formatIn == V4L2_PIX_FMT_SRGGB8) {
+    else if (cd.videoIn->formatIn == V4L2_PIX_FMT_SRGGB8) {
 
       b->size = compress_rggb_to_jpeg(cd.videoIn, b->buff, cd.videoIn->framesizeIn, cd.quality);
     }
-    else if(cd.videoIn->formatIn == V4L2_PIX_FMT_RGB24) {
+    else if (cd.videoIn->formatIn == V4L2_PIX_FMT_SGRBG8) {
+    
+      b->size = compress_grbg_to_jpeg(cd.videoIn, b->buff, cd.videoIn->framesizeIn, cd.quality);
+    }
+    else if (cd.videoIn->formatIn == V4L2_PIX_FMT_RGB24) {
 
       b->size = compress_rgb_to_jpeg(cd.videoIn, b->buff, cd.videoIn->framesizeIn, cd.quality);
     }
@@ -202,7 +208,7 @@ static void *video_recoreder_thread(void *arg)
   AVI_set_video(avifile, vd->width, vd->height, vd->fps, "MJPG");
   printf("recording to %s\n", cd.filename);
 
-  while(!stop) {
+  while (!stop) {
 
     pthread_mutex_lock(&(tbuff)->lock);
     pthread_cond_wait(&(tbuff)->cond, &(tbuff)->lock);
@@ -241,25 +247,25 @@ static void daemon_mode(void) {
   int fr=0;
 
   fr = fork();
-  if( fr < 0 ) {
+  if (fr < 0) {
     fprintf(stderr, "fork() failed\n");
     exit(1);
   }
-  if ( fr > 0 ) {
+  if (fr > 0) {
     exit(0);
   }
 
-  if( setsid() < 0 ) {
+  if (setsid() < 0) {
     fprintf(stderr, "setsid() failed\n");
     exit(1);
   }
 
   fr = fork();
-  if( fr < 0 ) {
+  if (fr < 0) {
     fprintf(stderr, "fork() failed\n");
     exit(1);
   }
-  if ( fr > 0 ) {
+  if (fr > 0) {
     fprintf(stderr, "forked to background (%d)\n", fr);
     exit(0);
   }
@@ -282,7 +288,7 @@ int main(int argc, char *argv[])
   cd.quality = 40;
   server.username = SERVER_USER;
 
-  while(1) {
+  while (1) {
     int option_index = 0, c=0;
     static struct option long_options[] = \
     {
@@ -300,6 +306,7 @@ int main(int argc, char *argv[])
       {"P", required_argument, 0, 0},
       {"y", no_argument, 0, 0},
       {"g", no_argument, 0, 0},
+      {"g1", no_argument, 0, 0},
       {"q", required_argument, 0, 0},
       {"v", no_argument, 0, 0},
       {"version", no_argument, 0, 0},
@@ -315,7 +322,7 @@ int main(int argc, char *argv[])
     if (c == -1) break;
 
     /* unrecognized option */
-    if(c=='?'){ help(argv[0]); return 0; }
+    if (c=='?') { help(argv[0]); return 0; }
 
     switch (option_index) {
       /* h, help */
@@ -347,7 +354,6 @@ int main(int argc, char *argv[])
       case 7:
         cd.fps = atoi(optarg);
         break;
-
       /* p, port */
       case 8:
       case 9:
@@ -369,21 +375,25 @@ int main(int argc, char *argv[])
       case 13:
         cd.format = V4L2_PIX_FMT_SRGGB8;
         break;
-      /* q */
+      /* g1 */
       case 14:
+        cd.format = V4L2_PIX_FMT_SGRBG8;
+        break;
+      /* q */
+      case 15:
         cd.quality = atoi(optarg);
         break;
       /* v, version */
-      case 15:
       case 16:
+      case 17:
         print_version();
         return 0;
       /* b, background */
-      case 17:
       case 18:
+      case 19:
         cd.daemon = 1;
         break;
-      case 19:
+      case 20:
         cd.filename = optarg;
         break;
       default:
@@ -402,8 +412,8 @@ int main(int argc, char *argv[])
   /* allocate webcam datastructure */
   cd.videoIn = (struct vdIn *) calloc(1, sizeof(struct vdIn));
 
-  for(i = 0; i < NELEMS(pixel_formats); i++){
-    if(pixel_formats[i].format == cd.format) {
+  for (i = 0; i < NELEMS(pixel_formats); i++){
+    if (pixel_formats[i].format == cd.format) {
         fmtStr = pixel_formats[i].name;
     }
   }
@@ -428,16 +438,16 @@ int main(int argc, char *argv[])
 
   /* start to read the camera, push picture buffers into global buffer */
   init_queue(&tbuff.qbuff, QMAX);
-  for(i=0; i  < QMAX; i++){
-    struct buff *b = malloc(sizeof(b));
-    b->buff =(unsigned char *) calloc(1, (size_t)cd.videoIn->framesizeIn);
+  for (i=0; i  < QMAX; i++){
+    struct buff *b = malloc(sizeof(struct buff));
+    b->buff = (unsigned char *)calloc(1, (size_t)cd.videoIn->framesizeIn);
     queue_push(&tbuff.qbuff, b);
   }
 
   pthread_create(&cd.tcam, NULL, cam_thread, &tbuff);
   pthread_detach(cd.tcam);
 
-  if(cd.filename) {
+  if (cd.filename) {
     pthread_create(&cd.trecorder, NULL, video_recoreder_thread, &tbuff);
     pthread_join(cd.trecorder, NULL);
   } else {
@@ -461,6 +471,7 @@ void help(char *progname)
     " [-P ]                  server password\n"
     " [-y ]                  use YUYV format\n"
     " [-g ]                  use RGGB format\n"
+    " [-g1]                  use GRBG format\n"
     " [-q ]                  compression quality\n"
     " [-v | --version ]      display version information\n"
     " [-b | --background]    fork to the background, daemon mode\n"

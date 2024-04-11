@@ -202,6 +202,11 @@ int compress_yuyv_to_jpeg(struct vdIn *vd, unsigned char *buffer, int size, int 
 
     return (written);
 }
+
+/* 
+ * RGGB format
+ * https://www.kernel.org/doc/html/v4.8/media/uapi/v4l/pixfmt-srggb8.html
+ */
 int compress_rggb_to_jpeg(struct vdIn *vd, unsigned char* buffer, int size, int quality)
 {
     struct jpeg_compress_struct cinfo;
@@ -250,6 +255,96 @@ int compress_rggb_to_jpeg(struct vdIn *vd, unsigned char* buffer, int size, int 
                 rgb += 4;
             }
             
+        }
+
+        row_pointer[0] = line_buffer;
+        jpeg_write_scanlines(&cinfo, row_pointer, 1);
+    }
+
+    jpeg_finish_compress(&cinfo);
+    jpeg_destroy_compress(&cinfo);
+
+    free(line_buffer);
+
+    return (written);
+}
+
+/*
+ * This function performs de-bayering - taking an 8-bit GRGR/BGBG bayer interlaced data
+ * and produces an RGB data.
+ * See: https://www.kernel.org/doc/html/v4.8/media/uapi/v4l/pixfmt-sgrbg8.html
+ *      https://en.wikipedia.org/wiki/Bayer_filter
+ */
+int compress_grbg_to_jpeg(struct vdIn *vd, unsigned char* buffer, int size, int quality)
+{
+    struct jpeg_compress_struct cinfo;
+    struct jpeg_error_mgr jerr;
+    JSAMPROW row_pointer[1];
+    unsigned char *line_buffer, *rgb;
+    static int written;
+
+    line_buffer = calloc(vd->width * 3, 1);
+    rgb = vd->framebuffer;
+
+    cinfo.err = jpeg_std_error(&jerr);
+    jpeg_create_compress(&cinfo);
+    /* jpeg_stdio_dest (&cinfo, file); */
+    dest_buffer(&cinfo, buffer, size, &written);
+
+    cinfo.image_width = vd->width;
+    cinfo.image_height = vd->height;
+    cinfo.input_components = 3;
+    cinfo.in_color_space = JCS_RGB;
+
+    jpeg_set_defaults(&cinfo);
+    jpeg_set_quality(&cinfo, quality, TRUE);
+
+    jpeg_start_compress(&cinfo, TRUE);
+
+    int grgr_line = 0;
+    int g_byte = 1;
+    while(cinfo.next_scanline < vd->height) {
+        int x;
+        unsigned char *ptr = line_buffer;
+
+	grgr_line = !grgr_line;
+	g_byte = grgr_line; // on GRGR lines, G is the first byte. on BGBG lines, it is the second.
+
+        for(x = 0; x < vd->width; x++) {
+            int r=0, g=0, b=0;
+
+	    if (grgr_line) {
+		    if (g_byte) {
+			    // 'rgb' points to a G byte
+			    g = rgb[0];
+			    r = rgb[1]; // next byte
+			    b = rgb[vd->width]; // byte value from next line
+		    } else {
+			    // 'rgb' points to an R byte
+			    r = rgb[0];
+			    g = rgb[1];
+			    b = rgb[vd->width+1]; // byte value from next line + next byte
+		    }
+	    } else {
+		    if (g_byte) {
+			    // 'rgb' points to a G byte
+			    g = rgb[0];
+			    b = rgb[1];
+			    r = rgb[vd->width]; // from next line
+		    } else {
+			    // 'rgb' points to a B byte
+			    b = rgb[0];
+			    g = rgb[1];
+			    r = rgb[vd->width+1]; // from next line + next byte
+		    }
+	    }
+
+            *(ptr++) = (r > 255) ? 255 : ((r < 0) ? 0 : r);
+            *(ptr++) = (g > 255) ? 255 : ((g < 0) ? 0 : g);
+            *(ptr++) = (b > 255) ? 255 : ((b < 0) ? 0 : b);
+
+	    ++rgb;
+	    g_byte = !g_byte;
         }
 
         row_pointer[0] = line_buffer;

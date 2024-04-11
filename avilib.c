@@ -1,8 +1,8 @@
 /*
  *  avilib.c
  *
- *  Copyright (C) Thomas Östreich - June 2001
- *  multiple audio track support Copyright (C) 2002 Thomas Östreich 
+ *  Copyright (C) Thomas Ã–streich - June 2001
+ *  multiple audio track support Copyright (C) 2002 Thomas Ã–streich 
  *
  *  Original code:
  *  Copyright (C) 1999 Rainer Johanni <Rainer@Johanni.de> 
@@ -333,13 +333,17 @@ void AVI_set_audio(avi_t *AVI, int channels, long rate, int bits, int format, lo
 }
 
 #define OUT4CC(s) \
-   if(nhb<=HEADERBYTES-4) memcpy(AVI_header+nhb,s,4); nhb += 4
+  if (nhb <= HEADERBYTES-4) \
+    memcpy(AVI_header+nhb,s,4);\
+  nhb += 4
 
 #define OUTLONG(n) \
-   if(nhb<=HEADERBYTES-4) long2str(AVI_header+nhb,n); nhb += 4
+   if (nhb<=HEADERBYTES-4) \
+    long2str(AVI_header+nhb,n);\
+  nhb += 4
 
 #define OUTSHRT(n) \
-   if(nhb<=HEADERBYTES-2) { \
+   if (nhb<=HEADERBYTES-2) { \
       AVI_header[nhb  ] = (n   )&0xff; \
       AVI_header[nhb+1] = (n>>8)&0xff; \
    } \
@@ -908,7 +912,7 @@ static int avi_write_data(avi_t *AVI, char *data, unsigned long length, int audi
 {
    int n;
 
-   unsigned char astr[5];
+   unsigned char astr[15];
 
    /* Check for maximum file length */
    
@@ -920,7 +924,7 @@ static int avi_write_data(avi_t *AVI, char *data, unsigned long length, int audi
    /* Add index entry */
 
    //set tag for current audio track
-   sprintf((char *)astr, "0%1dwb", (int)(AVI->aptr+1));
+   snprintf((char *)astr, sizeof(astr), "0%1dwb", (int)(AVI->aptr+1));
 
    if(audio)
      n = avi_add_index_entry(AVI,astr,0x00,AVI->pos,length);

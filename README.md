@@ -35,8 +35,8 @@ $ ./uvc_stream -d /dev/videoX -g
 all options
 $ ./uvc_stream -h
 test
-vlc http://localhost:8080/
-firefox http://localhost:8080/snapshot
+vlc http://localhost:8080/stream.mjpeg
+firefox http://localhost:8080/snapshot.jpeg
 ```
 
 ### License

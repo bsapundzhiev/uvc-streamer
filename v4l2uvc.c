@@ -564,7 +564,7 @@ int v4L2UpDownPanTilt(struct vdIn *vd, short inc_p, short inc_t) {
   control_s_array.count = 2;
   control_s_array.ctrl_class = V4L2_CTRL_CLASS_USER;
   control_s_array.reserved[0] = 0;
-  control_s_array.reserved[1] = 0;
+  //control_s_array.reserved[1] = 0;
   control_s_array.controls = control_s;
 
   control_s[0].id = p_control;

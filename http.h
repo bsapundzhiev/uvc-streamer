@@ -33,7 +33,7 @@ struct http_server {
   struct thread_buff *ptbuff;
   pthread_t client;
   client_thread_t client_thread;
-} server;
+};
 
 typedef enum { AUTH_NONE, AUTH_PENDING, AUTH_CHECK } auth_state_t;
 typedef enum { UNKNOWN, INVALID, SNAPSHOT, STREAM } request_t;
