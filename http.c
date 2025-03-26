@@ -112,12 +112,15 @@ static void http_header_free(struct http_header *header);
 
 static int print_picture(int fd, unsigned char *buf, int size)
 {
-  int jpg_hdr = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
-  if(jpg_hdr != 0xFFD8FFE0 && jpg_hdr != 0xFFD8FFC0) {
+  int ret = -1;
+  if (buf != NULL && size > 4) {
+    int jpg_hdr = ((buf[0] << 8) | buf[1]);
+    if(jpg_hdr != 0xFFD8) {
       printf("%s: invalid JPEG header 0x%X\n", __func__, jpg_hdr);
+    }
+    ret = write(fd, buf, size) > 0 ? 0 : -1;
   }
-  if( write(fd, buf, size) <= 0) return -1;
-  return 0;
+  return ret;
 }
 
 uint32_t FNV_hash32(uint32_t key)
