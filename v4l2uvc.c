@@ -85,6 +85,7 @@ init_videoIn(struct vdIn *vd, char *device, int width, int height, int fps,
     break;
   case V4L2_PIX_FMT_YUYV:
   case V4L2_PIX_FMT_SRGGB8:
+  case V4L2_PIX_FMT_SGRBG8:
     vd->framebuffer =
         (unsigned char *) calloc(1, (size_t) vd->framesizeIn);
     break;
@@ -302,6 +303,7 @@ int uvcGrab(struct vdIn *vd)
 
     case V4L2_PIX_FMT_SRGGB8:
     case V4L2_PIX_FMT_YUYV:
+    case V4L2_PIX_FMT_SGRBG8:
         if(vd->buf.bytesused > vd->framesizeIn) {
             memcpy(vd->framebuffer, vd->mem[vd->buf.index], (size_t) vd->framesizeIn);
         } else {
