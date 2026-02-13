@@ -88,7 +88,7 @@ struct pixel_format {
   int format;
 };
 
-struct resolutions{
+struct resolutions {
   char *name;
   int width;
   int height;
@@ -105,6 +105,7 @@ struct pixel_format pixel_formats[] = {
 
 struct resolutions resolutions_formats[] = {
   /*https://en.wikipedia.org/wiki/Display_resolution#/media/File:Vector_Video_Standards8.svg*/
+  {"1920x1080", 1920, 1080  },
   {"1280x720", 1280, 720  },
   {"960x720",   960, 720  },
   {"800x600",   800, 600  },
@@ -121,8 +122,16 @@ struct resolutions resolutions_formats[] = {
 };
 
 int stop=0;
-struct http_server server;
-struct control_data cd;
+struct http_server server = { .username = SERVER_USER };
+struct control_data cd = {   
+  .format = V4L2_PIX_FMT_MJPEG,
+  .fps= 5,
+  .daemon = 0,
+  .width=640,
+  .height=480,
+  .quality = 40,
+};
+
 struct thread_buff tbuff = {
   PTHREAD_MUTEX_INITIALIZER,
   PTHREAD_COND_INITIALIZER,
@@ -273,21 +282,26 @@ static void daemon_mode(void) {
   umask(0);
 }
 
+void set_resolution(struct control_data* cd, const char* resolution)
+{     
+  int i;
+  for (i = 0; i < NELEMS(resolutions_formats) && cd && resolution; i++) {
+    if (!strcmp(resolutions_formats[i].name, resolution)) { 
+      cd->width = resolutions_formats[i].width;
+      cd->height = resolutions_formats[i].height;
+    }
+  }
+}
+
 /* Main */
 int main(int argc, char *argv[])
 {
   char *dev = VIDEODEV;
   char *fmtStr = "UNKNOWN";
-  int i;
-  cd.format = V4L2_PIX_FMT_MJPEG;
-  cd.fps= 5;
-  cd.daemon = 0;
-  cd.width=640;
-  cd.height=480;
-  server.port = htons(8080);
-  cd.quality = 40;
-  server.username = SERVER_USER;
+  int i, intopt;
 
+  server.port = htons(8080);
+  
   while (1) {
     int option_index = 0, c=0;
     static struct option long_options[] = \
@@ -341,23 +355,20 @@ int main(int argc, char *argv[])
       /* r, resolution */
       case 4:
       case 5:
-          for(i = 0; i < NELEMS(resolutions_formats); i++){
-            if(!strcmp(resolutions_formats[i].name, optarg)) {
-                cd.width = resolutions_formats[i].width;
-                cd.height = resolutions_formats[i].height;
-            }
-          }
+        set_resolution(&cd, optarg);
         break;
 
       /* f, fps */
       case 6:
       case 7:
-        cd.fps = atoi(optarg);
+        intopt = atoi(optarg);
+        cd.fps = intopt > 0 ? intopt : cd.fps;
         break;
       /* p, port */
       case 8:
       case 9:
-        server.port = htons(atoi(optarg));
+        intopt = atoi(optarg);
+        server.port = intopt > 0 ? htons(intopt) : server.port;
         break;
       /*u*/
       case 10:
@@ -381,7 +392,8 @@ int main(int argc, char *argv[])
         break;
       /* q */
       case 15:
-        cd.quality = atoi(optarg);
+        intopt =  atoi(optarg); 
+        cd.quality = intopt > 0 ? intopt : cd.quality;
         break;
       /* v, version */
       case 16:
